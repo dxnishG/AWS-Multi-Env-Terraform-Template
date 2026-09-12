@@ -2,7 +2,7 @@
 
 This repository is a reusable Terraform root configuration for a small application-hosting stack on AWS. It creates a VPC, public and private subnets, routing, security groups, EC2 instances, an EC2 IAM instance profile, and encrypted S3 buckets. The same root configuration is used for `dev`, `acc`, and `prd`; each environment supplies its own `.tfvars` file.
 
-Terraform state is stored in Terraform Cloud or Terraform Enterprise (TFC/TFE) through the `remote` backend. GitHub Actions runs plans for every push and pull request, then applies environments sequentially only after a push to `main` or an explicit workflow dispatch.
+Terraform state is stored in Terraform Cloud or Terraform Enterprise (TFC/TFE) through the `remote` backend. GitHub Actions runs plans for every push and pull request, then applies environments sequentially only after a push to `main` or an explicit workflow dispatch with `run_apply` enabled.
 
 ## What it creates
 
@@ -40,8 +40,13 @@ flowchart TB
     root --> iam[EC2 instance role and profile]
     iam --> ssm[Systems Manager]
     iam --> s3
-    gha[GitHub Actions] --> tfe[TFC/TFE remote workspace]
+    gha[GitHub Actions] --> plan[Plan matrix: dev / acc / prd]
+    plan --> tfe[TFC/TFE remote workspaces]
     tfe --> root
+    plan --> deploy{Deploy gate}
+    deploy -->|main or manual apply| githubenv[GitHub Environments]
+    githubenv --> apply[Sequential apply matrix]
+    apply --> tfe
 ```
 
 ## Repository layout
@@ -58,6 +63,8 @@ flowchart TB
 ├── envs/<env>/<env>.tfconfig     # TFC/TFE hostname, organization, and workspace
 └── .github/workflows/            # Plan and sequential apply workflows
 ```
+
+The CI workflow creates a temporary root-level `terraform.auto.tfvars` file from the selected environment file. It is ignored by Git and is used because the Terraform `remote` backend does not support passing run variables with `terraform plan -var-file` or `terraform apply -var-file`.
 
 ## Required authentication and secrets
 
@@ -87,14 +94,15 @@ For deployment through a role, configure TFC/TFE dynamic provider credentials/OI
 
 ## TFC/TFE setup
 
-1. Create one workspace per environment, for example `myapp-dev`, `myapp-acc`, and `myapp-prd`.
+1. Create one workspace per environment, using a consistent naming pattern such as `<repository>-dev`, `<repository>-acc`, and `<repository>-prd`.
 2. Set each workspace to **Remote** execution.
-3. Replace `your-tfe-org` in each `envs/<env>/<env>.tfconfig` with the real organization name. Change `hostname` when using Terraform Enterprise.
-4. Configure AWS credentials or dynamic provider credentials in each workspace/variable set.
-5. Add `TF_TOKEN` to the GitHub repository secret store.
-6. Ensure the workspace policy permits the Terraform identity to create and manage the resources listed above.
+3. Assign the workspaces to a project in your TFC/TFE organization.
+4. Assign an AWS credentials variable set to all workspaces. It must provide the sensitive environment variables `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`.
+5. Update the `organization` and workspace `name` in each `envs/<env>/<env>.tfconfig` file. Change `hostname` when using Terraform Enterprise.
+6. Add `TF_TOKEN` to the GitHub repository secret store at **Settings > Secrets and variables > Actions**. This token authenticates GitHub Actions to Terraform Cloud; it is separate from the AWS credentials.
+7. Ensure the AWS identity permits the Terraform resources in this repository, including VPC, EC2, IAM, S3, and Systems Manager operations.
 
-The workspace names and backend config are intentionally separate from the infrastructure values. To reuse this template, copy an environment directory, change its workspace name and `.tfvars`, then add that environment to `ENVIRONMENTS` in `.github/workflows/terraform.yml`.
+The workspace names and backend config are intentionally separate from the infrastructure values. To reuse this template, copy an environment directory, change its organization and workspace name, then add that environment to `ENVIRONMENTS` in `.github/workflows/terraform.yml`.
 
 ## Local workflow
 
@@ -110,20 +118,23 @@ terraform init \
 
 terraform fmt -check -recursive
 terraform validate
-terraform plan \
-  -var-file="envs/${ENV}/${ENV}.tfvars"
+cp "envs/${ENV}/${ENV}.tfvars" terraform.auto.tfvars
+terraform plan
 
 # Apply only after reviewing the plan.
-terraform apply \
-  -var-file="envs/${ENV}/${ENV}.tfvars"
+terraform apply
 ```
 
-Use `terraform init -reconfigure` when switching between environment backends. Do not run different environments concurrently from the same working directory; each initialization changes the selected remote workspace.
+The `cp` command creates the auto-loaded variables file required by the `remote` backend. Do not commit `terraform.auto.tfvars`; it is ignored by `.gitignore`. Use `terraform init -reconfigure` when switching between environment backends. Do not run different environments concurrently from the same working directory; each initialization changes the selected remote workspace.
 
 ## GitHub Actions workflow
 
-- `terraform.yml` builds a matrix from the `ENVIRONMENTS` list, formats and validates the configuration, and creates a remote plan for each environment on pushes and pull requests.
-- The reusable deploy workflow applies environments in the order supplied by the matrix, only on `main` or a manually requested apply.
+- `terraform.yml` builds a matrix from the `ENVIRONMENTS` list (`dev`, `acc`, and `prd`), formats and validates the configuration, and creates a remote plan for each environment on pushes and pull requests.
+- The workflow authenticates to Terraform Cloud using the GitHub repository secret `TF_TOKEN`. AWS credentials are provided to the remote Terraform Cloud workspaces by the assigned AWS credentials variable set.
+- Each plan copies its matching `envs/<env>/<env>.tfvars` file to `terraform.auto.tfvars` before running `terraform plan`.
+- A successful plan on a feature branch does not deploy. The reusable deploy workflow runs only after a push to `main`, or when a workflow is manually dispatched with `run_apply: true`.
+- The deploy workflow applies `dev`, `acc`, and `prd` sequentially through a matrix with `max-parallel: 1`, using the same auto-loaded variable-file mechanism.
+- Each deploy matrix job sets `environment: <env>`, so GitHub records a separate deployment for each environment. Create matching environments under **Repository settings > Environments**; protection rules such as required reviewers can be configured there.
 - Pull requests from forks cannot access repository secrets, so their remote plan jobs will not authenticate unless the workflow is adapted for that trust model.
 
 ## Key-pair handling
@@ -151,4 +162,5 @@ SSM access is enabled on every instance, so SSH is optional for normal administr
 3. Define public/private subnet keys that match each EC2 instance's `subnet_key`.
 4. Keep web ingress narrow, especially SSH; prefer SSM instead of opening port 22.
 5. Set S3 `purpose`, `enable_versioning`, and an intentional `force_destroy` value.
-6. Add the environment to the workflow matrix and run a plan before applying.
+6. Add the environment to the workflow matrix and create a matching GitHub Environment with the same name.
+7. Run a plan before applying.
