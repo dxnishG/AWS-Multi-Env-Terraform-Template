@@ -12,6 +12,7 @@ crash.*.log
 # Plan files
 *.tfplan
 *.plan
+terraform.auto.tfvars
 
 # Local credentials and overrides
 override.tf

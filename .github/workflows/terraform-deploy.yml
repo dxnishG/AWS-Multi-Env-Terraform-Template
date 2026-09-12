@@ -42,12 +42,13 @@ jobs:
             echo "Deploying $environment"
             echo "=========================================="
 
+            cp "envs/${environment}/${environment}.tfvars" terraform.auto.tfvars
+
             terraform init \
               -reconfigure \
               -backend-config="envs/${environment}/${environment}.tfconfig"
 
             terraform apply \
-              -auto-approve \
-              -var-file="envs/${environment}/${environment}.tfvars"
+              -auto-approve
 
           done < <(jq -r '.[]' <<< "$ENVIRONMENTS")

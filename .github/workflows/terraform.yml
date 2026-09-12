@@ -97,8 +97,8 @@ jobs:
 
       - name: Terraform Plan
         run: |
-          terraform plan \
-            -var-file="envs/${{ matrix.environment }}/${{ matrix.environment }}.tfvars"
+          cp "envs/${{ matrix.environment }}/${{ matrix.environment }}.tfvars" terraform.auto.tfvars
+          terraform plan
 
   deploy:
     name: Deploy
