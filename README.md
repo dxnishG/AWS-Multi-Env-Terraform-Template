@@ -95,7 +95,7 @@ For deployment through a role, configure TFC/TFE dynamic provider credentials/OI
 ## TFC/TFE setup
 
 1. Create one workspace per environment, using a consistent naming pattern such as `<repository>-dev`, `<repository>-acc`, and `<repository>-prd`.
-2. Set each workspace to **Remote** execution.
+2. Set each workspace to **Remote** execution and leave **Version control workflow** disconnected. These workflows are CLI-driven by GitHub Actions; connecting the workspace directly to GitHub creates a second VCS-driven run that does not receive the selected environment file.
 3. Assign the workspaces to a project in your TFC/TFE organization.
 4. Assign an AWS credentials variable set to all workspaces. It must provide the sensitive environment variables `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`.
 5. Update the `organization` and workspace `name` in each `envs/<env>/<env>.tfconfig` file. Change `hostname` when using Terraform Enterprise.
@@ -130,6 +130,7 @@ The `cp` command creates the auto-loaded variables file required by the `remote`
 ## GitHub Actions workflow
 
 - `terraform.yml` builds a matrix from the `ENVIRONMENTS` list (`dev`, `acc`, and `prd`), formats and validates the configuration, and creates a remote plan for each environment on pushes and pull requests.
+- The TFC/TFE workspaces must be CLI-driven with no VCS repository connection. GitHub Actions is the single workflow trigger and passes the selected environment variables to each remote run.
 - The workflow authenticates to Terraform Cloud using the GitHub repository secret `TF_TOKEN`. AWS credentials are provided to the remote Terraform Cloud workspaces by the assigned AWS credentials variable set.
 - Each plan copies its matching `envs/<env>/<env>.tfvars` file to `terraform.auto.tfvars` before running `terraform plan`.
 - A successful plan on a feature branch does not deploy. The reusable deploy workflow runs only after a push to `main`, or when a workflow is manually dispatched with `run_apply: true`.
