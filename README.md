@@ -212,7 +212,7 @@ application_dns_name output and verify the HTTPS health endpoint.
 Pull requests run the quality gate and a Terraform plan for each environment:
 dev, acc, and prd. A push to main runs the quality gate, then starts the
 promotion sequence; only then can Terraform apply run. The promotion workflow
-creates one saved plan per environment and applies that exact plan.
+runs remote plans and applies through HCP Terraform/TFE.
 
 ### Repository settings
 
@@ -222,14 +222,18 @@ creates one saved plan per environment and applies that exact plan.
 | Variable | TF_HOSTNAME | TFE hostname; omit for app.terraform.io |
 
 Create GitHub environments named dev, acc, and prd under
-**Settings → Environments**. Add these variables to each environment:
+**Settings → Environments**. These variables enable post-apply rollout
+verification and are optional for the first bootstrap deployment:
 
 | Name | Value |
 | --- | --- |
 | APPLICATION_URL | Full readiness URL, for example https://app.example.com/health |
 | AWS_VERIFY_ROLE_ARN | Read-only AWS role assumed through GitHub OIDC |
 
-The verification role needs:
+The verification role needs the following permissions. If these variables are
+not configured, infrastructure apply still runs and rollout verification is
+skipped with a warning. After the first deployment, use the Terraform output
+`application_dns_name` to create the value for `APPLICATION_URL`:
 
 ~~~json
 {
@@ -273,9 +277,9 @@ sequenceDiagram
     loop dev, then acc, then prd
         GH->>TF: Create saved remote plan
         TF->>AWS: Refresh current state
-        TF-->>GH: Saved plan reference
+        TF-->>GH: Remote plan result
         GH->>GH: Wait for environment approval
-        GH->>TF: Apply that exact saved plan
+        GH->>TF: Start remote apply
         TF->>AWS: Reconcile infrastructure
         GH->>AWS: Verify ASG version and ALB targets
         GH->>AWS: Require 3 successful HTTPS health checks
