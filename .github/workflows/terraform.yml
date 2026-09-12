@@ -1,171 +1,52 @@
 name: Terraform CI/CD
-
 on:
-  push:
-    paths:
-      - "**/*.tf"
-      - "**/*.tfvars"
-      - "**/*.tfconfig"
-      - ".terraform.lock.hcl"
-      - ".tflint.hcl"
-      - ".checkov.yml"
-      - "trivy.yaml"
-      - "envs/**"
-      - ".github/workflows/**"
-
   pull_request:
-    paths:
-      - "**/*.tf"
-      - "**/*.tfvars"
-      - "**/*.tfconfig"
-      - ".terraform.lock.hcl"
-      - ".tflint.hcl"
-      - ".checkov.yml"
-      - "trivy.yaml"
-      - "envs/**"
-      - ".github/workflows/**"
-
+    branches: [main]
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
-      run_apply:
-        description: Execute Terraform apply
+      deploy:
+        description: Promote the checked revision through DEV, ACC and PRD
         type: boolean
         default: false
-
 permissions:
   contents: read
-
-env:
-  TF_VERSION: "1.9.0"
-
-  # To skip an environment, comment it out here.
-  ENVIRONMENTS: |
-    dev
-    acc
-    prd
-
+# Serialize promotions across every ref; never cancel an active apply.
 concurrency:
-  group: terraform-${{ github.repository }}-${{ github.ref }}
+  group: terraform-${{ github.repository }}
   cancel-in-progress: false
-
 jobs:
-
-  # ==========================================================================
-  # ENVIRONMENT MATRIX
-  # ==========================================================================
-  environments:
-    name: Build environment matrix
-    runs-on: ubuntu-latest
-
-    outputs:
-      matrix: ${{ steps.matrix.outputs.matrix }}
-
-    steps:
-      - name: Build matrix
-        id: matrix
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          matrix="$(
-            printf '%s\n' "$ENVIRONMENTS" |
-              sed '/^[[:space:]]*#/d;/^[[:space:]]*$/d' |
-              jq -Rsc '
-                split("\n")
-                | map(select(length > 0))
-              '
-          )"
-
-          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
-          echo "Environments: $matrix"
-
-
-  # ==========================================================================
-  # QUALITY + SECURITY GATE
-  #
-  # Nothing gets planned or deployed unless every quality/security control
-  # passes.
-  # ==========================================================================
   quality:
-    name: Quality Gate
     uses: ./.github/workflows/terraform-quality.yml
-
-
-  # ==========================================================================
-  # PLAN
-  # ==========================================================================
-  plan:
-    name: Plan (${{ matrix.environment }})
-
-    needs:
-      - environments
-      - quality
-
-    runs-on: ubuntu-latest
-
-    strategy:
-      fail-fast: false
-      matrix:
-        environment: ${{ fromJSON(needs.environments.outputs.matrix) }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: ${{ env.TF_VERSION }}
-          cli_config_credentials_token: ${{ secrets.TF_TOKEN }}
-          terraform_wrapper: false
-
-      - name: Terraform Format
-        run: terraform fmt -check -recursive
-
-      - name: Terraform Init
-        run: |
-          terraform init \
-            -input=false \
-            -backend-config="envs/${{ matrix.environment }}/${{ matrix.environment }}.tfconfig"
-
-      - name: Terraform Validate
-        run: terraform validate
-
-      - name: Terraform Plan
-        shell: bash
-        env:
-          ENVIRONMENT: ${{ matrix.environment }}
-        run: |
-          set -euo pipefail
-
-          cp \
-            "envs/${ENVIRONMENT}/${ENVIRONMENT}.tfvars" \
-            terraform.auto.tfvars
-
-          terraform plan \
-            -input=false \
-            -lock-timeout=5m
-
-
-  # ==========================================================================
-  # DEPLOY
-  # ==========================================================================
-  deploy:
-    name: Deploy
-
-    needs:
-      - environments
-      - plan
-
-    if: |
-      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'workflow_dispatch' && inputs.run_apply)
-
+  dev:
+    needs: quality
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.deploy
     uses: ./.github/workflows/terraform-deploy.yml
-
-    secrets: inherit
-
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
     with:
-      environments: ${{ needs.environments.outputs.matrix }}
+      environment: dev
+    secrets: inherit
+  acc:
+    needs: dev
+    uses: ./.github/workflows/terraform-deploy.yml
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    with:
+      environment: acc
+    secrets: inherit
+  prd:
+    needs: acc
+    uses: ./.github/workflows/terraform-deploy.yml
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    with:
+      environment: prd
+    secrets: inherit

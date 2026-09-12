@@ -1,155 +1,128 @@
 variable "environment" {
-  description = "Deployment environment (dev / acc / prd)"
+  description = "Environment name; prd enables production safeguards."
   type        = string
-
   validation {
     condition     = contains(["dev", "acc", "prd"], var.environment)
-    error_message = "environment must be one of: dev, acc, prd."
+    error_message = "Use dev, acc, or prd."
   }
 }
-
 variable "aws_region" {
-  description = "AWS region for all resources"
+  description = "Deployment region, also the region of the AMI, ACM certificate and SNS topic."
   type        = string
-  default     = "us-east-1"
 }
-
+variable "aws_account_id" {
+  description = "Expected AWS account; prevents deployment into the wrong account."
+  type        = string
+  validation {
+    condition     = can(regex("^[0-9]{12}$", var.aws_account_id))
+    error_message = "Provide the intended 12-digit AWS account ID."
+  }
+}
 variable "name_prefix" {
-  description = "Short identifier prepended to every resource name"
+  description = "Short lowercase resource prefix."
   type        = string
   default     = "app"
-}
-
-# ==============================================================================
-# Network
-# ==============================================================================
-
-variable "vpc_cidr" {
-  description = "CIDR block for the VPC"
-  type        = string
-}
-
-variable "public_subnet_configs" {
-  description = "Map of public subnets. Key = logical name used in other references."
-  type = map(object({
-    cidr_block        = string
-    availability_zone = string
-  }))
-  default = {}
-}
-
-variable "private_subnet_configs" {
-  description = "Map of private subnets. Key = logical name used in EC2 subnet_key."
-  type = map(object({
-    cidr_block        = string
-    availability_zone = string
-  }))
-  default = {}
-}
-
-variable "enable_nat_gateway" {
-  description = "Provision a NAT Gateway so private instances can reach the internet"
-  type        = bool
-  default     = false
-}
-
-# ==============================================================================
-# Security Groups
-# ==============================================================================
-
-variable "web_sg_ingress_rules" {
-  description = "Ingress rules for the public-facing (web) security group, keyed by rule name."
-  type = map(object({
-    from_port   = number
-    to_port     = number
-    protocol    = string
-    cidr_blocks = list(string)
-    description = optional(string, "")
-  }))
-  default = {}
-}
-
-variable "app_port" {
-  description = "Port the application tier listens on (used for web→app SG ingress)"
-  type        = number
-  default     = 8080
-}
-
-variable "app_sg_additional_rules" {
-  description = "Extra ingress rules for the app-tier security group (e.g. management SSH), keyed by rule name."
-  type = map(object({
-    from_port   = number
-    to_port     = number
-    protocol    = string
-    cidr_blocks = list(string)
-    description = optional(string, "")
-  }))
-  default = {}
-}
-
-# ==============================================================================
-# Compute — EC2
-# ==============================================================================
-
-variable "ami_id" {
-  description = "Custom AMI ID. Leave empty to use the latest Amazon Linux 2023."
-  type        = string
-  default     = ""
-}
-
-variable "create_key_pair" {
-  description = "Generate a new TLS key pair and register it in AWS"
-  type        = bool
-  default     = true
-}
-
-variable "key_name" {
-  description = "Key pair name. Used as the name for the generated key when create_key_pair = true; used as-is when false."
-  type        = string
-  default     = ""
-}
-
-variable "ec2_instances" {
-  description = <<-EOT
-    Map of EC2 instances to create, keyed by logical name.
-      role       : "web" → placed in public subnet + web SG; "app" → private subnet + app SG.
-      subnet_key : must match a key in public_subnet_configs (web) or private_subnet_configs (app).
-  EOT
-  type = map(object({
-    instance_type = string
-    role          = string
-    subnet_key    = string
-    volume_size   = optional(number, 20)
-    volume_type   = optional(string, "gp3")
-  }))
-  default = {}
-
   validation {
-    condition     = alltrue([for inst in values(var.ec2_instances) : contains(["web", "app"], inst.role)])
-    error_message = "Each ec2_instances entry must have role = \"web\" or \"app\"."
+    condition     = can(regex("^[a-z][a-z0-9-]{1,15}$", var.name_prefix))
+    error_message = "Use 2-16 lowercase letters, digits or hyphens, starting with a letter."
   }
 }
-
-# ==============================================================================
-# Storage — S3
-# ==============================================================================
-
-variable "s3_buckets" {
-  description = "Map of S3 buckets to create, keyed by logical name (becomes part of the bucket name)."
-  type = map(object({
-    purpose           = string
-    enable_versioning = bool
-    force_destroy     = optional(bool, true)
-  }))
-  default = {}
+variable "vpc_cidr" {
+  description = "IPv4 VPC CIDR."
+  type        = string
+  validation {
+    condition     = can(cidrnetmask(var.vpc_cidr))
+    error_message = "Provide an IPv4 CIDR."
+  }
 }
-
-# ==============================================================================
-# Tags
-# ==============================================================================
-
+variable "public_subnet_configs" {
+  description = "Public ALB/NAT subnets, one per AZ. Keep existing keys during migration."
+  type        = map(object({ cidr_block = string, availability_zone = string }))
+  validation {
+    condition     = length(var.public_subnet_configs) >= 2 && length(distinct([for s in var.public_subnet_configs : s.availability_zone])) == length(var.public_subnet_configs)
+    error_message = "Provide at least two public subnets in distinct AZs."
+  }
+}
+variable "private_subnet_configs" {
+  description = "Private application subnets with a matching public subnet in each AZ."
+  type        = map(object({ cidr_block = string, availability_zone = string }))
+  validation {
+    condition     = length(var.private_subnet_configs) >= 2 && length(distinct([for s in var.private_subnet_configs : s.availability_zone])) == length(var.private_subnet_configs) && alltrue([for s in var.private_subnet_configs : contains([for p in var.public_subnet_configs : p.availability_zone], s.availability_zone)])
+    error_message = "Provide at least two distinct private AZs, each with a public subnet in the same AZ."
+  }
+}
+variable "ami_id" {
+  description = "Pinned, tested application AMI with SSM agent and the service listening on app_port. No latest-image fallback."
+  type        = string
+  validation {
+    condition     = can(regex("^ami-([0-9a-f]{8}|[0-9a-f]{17})$", var.ami_id))
+    error_message = "Provide a pinned application AMI ID."
+  }
+}
+variable "certificate_arn" {
+  description = "Issued ACM certificate in the deployment region for the application hostname."
+  type        = string
+  validation {
+    condition     = can(regex("^arn:aws:acm:${var.aws_region}:${var.aws_account_id}:certificate/", var.certificate_arn))
+    error_message = "Provide an ACM certificate ARN in the target account and region."
+  }
+}
+variable "alarm_topic_arn" {
+  description = "Existing SNS topic with a confirmed operations subscription in the target region/account."
+  type        = string
+  validation {
+    condition     = can(regex("^arn:aws:sns:${var.aws_region}:${var.aws_account_id}:", var.alarm_topic_arn))
+    error_message = "Provide an operations SNS topic ARN in the target account and region."
+  }
+}
+variable "instance_type" {
+  description = "Instance type compatible with the pinned AMI."
+  type        = string
+  default     = "t3.small"
+}
+variable "app_port" {
+  description = "Application HTTP port reachable only from the ALB."
+  type        = number
+  default     = 8080
+  validation {
+    condition     = var.app_port >= 1 && var.app_port <= 65535 && floor(var.app_port) == var.app_port
+    error_message = "Use an integer TCP port between 1 and 65535."
+  }
+}
+variable "health_check_path" {
+  description = "Unauthenticated readiness endpoint returning HTTP 200 only when the application can serve traffic."
+  type        = string
+  default     = "/health"
+  validation {
+    condition     = startswith(var.health_check_path, "/")
+    error_message = "The health-check path must start with /."
+  }
+}
+variable "min_size" {
+  description = "Minimum healthy capacity; production requires at least two instances."
+  type        = number
+  default     = 2
+  validation {
+    condition     = var.min_size >= (var.environment == "prd" ? 2 : 1) && floor(var.min_size) == var.min_size
+    error_message = "Use positive integer capacity, at least two in production."
+  }
+}
+variable "max_size" {
+  description = "Maximum capacity, with room for rolling replacements."
+  type        = number
+  default     = 4
+  validation {
+    condition     = var.max_size > var.min_size && floor(var.max_size) == var.max_size
+    error_message = "Maximum capacity must be an integer greater than minimum capacity."
+  }
+}
+variable "s3_buckets" {
+  description = "Versioned, encrypted data buckets. Destructive deletion is disabled."
+  type        = map(object({ purpose = string }))
+  default     = { assets = { purpose = "Application assets" } }
+}
 variable "tags" {
-  description = "Tags applied to every resource via the provider default_tags block"
+  description = "Additional resource tags."
   type        = map(string)
   default     = {}
 }

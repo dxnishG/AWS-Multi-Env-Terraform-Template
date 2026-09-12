@@ -4,3 +4,10 @@ organization = "Danish-TF"
 workspaces {
   name = "AWS-Multi-Env-Terraform-Template-dev"
 }
+
+# hostname     = "app.terraform.io"
+# organization = "YOUR_TERRAFORM_ORGANIZATION"
+
+# workspaces {
+#   name = "aws-app-acc"
+# }

@@ -1,0 +1,152 @@
+# Preserve existing network/data addresses. Default subnet keys match the v1 examples.
+# Copy this file to the repository root as migrations.tf only while following
+# docs/MIGRATION.md. Review and adapt every address before planning.
+moved {
+  from = aws_vpc.this
+  to   = module.network.aws_vpc.this
+}
+
+moved {
+  from = aws_default_security_group.this
+  to   = module.network.aws_default_security_group.this
+}
+
+moved {
+  from = aws_internet_gateway.this[0]
+  to   = module.network.aws_internet_gateway.this
+}
+
+moved {
+  from = aws_subnet.public
+  to   = module.network.aws_subnet.public
+}
+
+moved {
+  from = aws_subnet.private
+  to   = module.network.aws_subnet.private
+}
+
+moved {
+  from = aws_route_table.public[0]
+  to   = module.network.aws_route_table.public
+}
+
+moved {
+  from = aws_route.public_internet[0]
+  to   = module.network.aws_route.public_internet
+}
+
+moved {
+  from = aws_route_table_association.public
+  to   = module.network.aws_route_table_association.public
+}
+
+moved {
+  from = aws_eip.nat[0]
+  to   = module.network.aws_eip.nat["web-1a"]
+}
+
+moved {
+  from = aws_nat_gateway.this[0]
+  to   = module.network.aws_nat_gateway.this["web-1a"]
+}
+
+moved {
+  from = aws_route_table.private[0]
+  to   = module.network.aws_route_table.private["app-1a"]
+}
+
+moved {
+  from = aws_route.private_nat[0]
+  to   = module.network.aws_route.private_nat["app-1a"]
+}
+
+moved {
+  from = aws_route_table_association.private
+  to   = module.network.aws_route_table_association.private
+}
+
+moved {
+  from = aws_s3_bucket.this
+  to   = module.storage.aws_s3_bucket.this
+}
+
+moved {
+  from = aws_s3_bucket_versioning.this
+  to   = module.storage.aws_s3_bucket_versioning.this
+}
+
+moved {
+  from = aws_s3_bucket_server_side_encryption_configuration.this
+  to   = module.storage.aws_s3_bucket_server_side_encryption_configuration.this
+}
+
+moved {
+  from = aws_s3_bucket_public_access_block.this
+  to   = module.storage.aws_s3_bucket_public_access_block.this
+}
+
+# Keep legacy compute/IAM alive for traffic cutover. These are intentionally
+# forgotten, not destroyed. Inventory them before apply; see migration guide.
+removed {
+  from = aws_instance.this
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = aws_security_group.web
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = aws_security_group.app
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = aws_iam_role.ec2
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = aws_iam_role_policy.s3_access
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = aws_iam_role_policy_attachment.ssm
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = aws_iam_instance_profile.ec2
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = aws_key_pair.this
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = tls_private_key.ssh
+  lifecycle {
+    destroy = false
+  }
+}

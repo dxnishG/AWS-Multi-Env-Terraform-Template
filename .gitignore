@@ -1,7 +1,6 @@
 # Local .terraform directories
 **/.terraform/*
 .terraform/
-.terraform.lock.hcl
 
 # State files and crash logs
 *.tfstate
@@ -13,6 +12,8 @@ crash.*.log
 *.tfplan
 *.plan
 terraform.auto.tfvars
+__pycache__/
+*.pyc
 
 # Local credentials and overrides
 override.tf

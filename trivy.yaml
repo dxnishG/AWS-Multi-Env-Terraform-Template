@@ -6,8 +6,11 @@ severity:
   - HIGH
   - CRITICAL
 
-ignore-unfixed: true
+vulnerability:
+  ignore-unfixed: false
 
-skip-dirs:
-  - .git
-  - .terraform
+scan:
+  skip-dirs:
+    - .git
+    - .terraform
+    - "**/.terraform"

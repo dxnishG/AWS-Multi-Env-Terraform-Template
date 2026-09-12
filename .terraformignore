@@ -9,7 +9,6 @@
 # Local terraform cache & lock files
 .terraform/
 **/.terraform/*
-.terraform.lock.hcl
 
 # State and plan artifacts
 *.tfstate

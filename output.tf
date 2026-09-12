@@ -1,64 +1,40 @@
 output "vpc_id" {
-  description = "ID of the VPC"
-  value       = aws_vpc.this.id
+  description = "VPC ID."
+  value       = module.network.vpc_id
 }
-
 output "public_subnet_ids" {
-  description = "Map of public subnet IDs keyed by logical name"
-  value       = { for k, v in aws_subnet.public : k => v.id }
+  description = "Public subnet IDs by logical key."
+  value       = module.network.public_subnet_ids
 }
-
 output "private_subnet_ids" {
-  description = "Map of private subnet IDs keyed by logical name"
-  value       = { for k, v in aws_subnet.private : k => v.id }
+  description = "Private subnet IDs by logical key."
+  value       = module.network.private_subnet_ids
 }
-
-output "web_security_group_id" {
-  description = "ID of the web-facing security group"
-  value       = aws_security_group.web.id
+output "application_dns_name" {
+  description = "ALB DNS name; create an alias for the hostname covered by the ACM certificate."
+  value       = module.service.dns_name
 }
-
-output "app_security_group_id" {
-  description = "ID of the app-tier security group"
-  value       = aws_security_group.app.id
+output "autoscaling_group_name" {
+  description = "ASG to inspect for rollout completion."
+  value       = module.service.asg_name
 }
-
-output "ec2_instance_ids" {
-  description = "Map of EC2 instance IDs keyed by logical name"
-  value       = { for k, v in aws_instance.this : k => v.id }
-}
-
-output "ec2_instance_public_ips" {
-  description = "Map of EC2 public IPs keyed by logical name (web-role instances only)"
-  value       = { for k, v in aws_instance.this : k => v.public_ip if v.associate_public_ip_address }
-}
-
-output "ec2_instance_private_ips" {
-  description = "Map of EC2 private IPs keyed by logical name"
-  value       = { for k, v in aws_instance.this : k => v.private_ip }
-}
-
 output "s3_bucket_names" {
-  description = "Map of S3 bucket names keyed by logical name"
-  value       = { for k, v in aws_s3_bucket.this : k => v.bucket }
+  description = "Data bucket names."
+  value       = module.storage.bucket_names
 }
-
-output "s3_bucket_arns" {
-  description = "Map of S3 bucket ARNs keyed by logical name"
-  value       = { for k, v in aws_s3_bucket.this : k => v.arn }
+output "backup_vault_name" {
+  description = "Vault holding scheduled EC2 recovery points."
+  value       = module.recovery.vault_name
 }
-
-output "iam_instance_profile_name" {
-  description = "Name of the EC2 IAM instance profile"
-  value       = aws_iam_instance_profile.ec2.name
+output "aws_region" {
+  description = "Deployment region for rollout verification."
+  value       = var.aws_region
 }
-
-output "key_pair_name" {
-  description = "Name of the AWS key pair used by EC2 instances"
-  value       = var.create_key_pair ? aws_key_pair.this[0].key_name : var.key_name
+output "target_group_arn" {
+  description = "Target group checked by the deployment gate."
+  value       = module.service.target_group_arn
 }
-
-output "nat_gateway_public_ip" {
-  description = "Public IP of the NAT Gateway (if enabled)"
-  value       = var.enable_nat_gateway ? aws_eip.nat[0].public_ip : null
+output "launch_template_version" {
+  description = "Expected launch template version after rollout."
+  value       = module.service.launch_template_version
 }
