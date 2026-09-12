@@ -209,9 +209,10 @@ application_dns_name output and verify the HTTPS health endpoint.
 
 ## GitHub Actions setup
 
-Pushes and pull requests run the quality gate and a Terraform plan for each
-environment: dev, acc, and prd. A push to main starts the promotion sequence;
-only then can Terraform apply run.
+Pull requests run the quality gate and a Terraform plan for each environment:
+dev, acc, and prd. A push to main runs the quality gate, then starts the
+promotion sequence; only then can Terraform apply run. The promotion workflow
+creates one saved plan per environment and applies that exact plan.
 
 ### Repository settings
 
@@ -267,9 +268,8 @@ sequenceDiagram
     participant TF as HCP Terraform/TFE
     participant AWS
 
-    Operator->>GH: Dispatch from main with deploy=true
+    Operator->>GH: Merge pull request to main
     GH->>GH: Quality and security checks
-    GH->>GH: Plan dev, acc, and prd
     loop dev, then acc, then prd
         GH->>TF: Create saved remote plan
         TF->>AWS: Refresh current state

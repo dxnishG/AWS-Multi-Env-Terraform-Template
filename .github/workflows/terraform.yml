@@ -17,6 +17,7 @@ jobs:
   plan:
     name: Terraform Plan (${{ matrix.environment }})
     needs: quality
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -46,7 +47,7 @@ jobs:
           terraform plan -input=false -lock-timeout=5m
 
   dev:
-    needs: plan
+    needs: quality
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     uses: ./.github/workflows/terraform-deploy.yml
     permissions:
