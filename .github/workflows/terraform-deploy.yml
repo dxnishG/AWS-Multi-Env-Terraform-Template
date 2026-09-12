@@ -103,7 +103,7 @@ jobs:
           terraform output -json > "$RUNNER_TEMP/terraform-outputs.json"
           echo "AWS_REGION=$(jq -r '.aws_region.value' "$RUNNER_TEMP/terraform-outputs.json")" >> "$GITHUB_ENV"
       - name: Assume read-only rollout verification role
-        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6.2.4
         with:
           role-to-assume: ${{ vars.AWS_VERIFY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
