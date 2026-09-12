@@ -26,8 +26,8 @@ env:
   # To skip an environment just comment it out from ENVIRONMENTS.
   ENVIRONMENTS: |
     dev
-    acc
-    prd
+#    acc
+#    prd
 
 concurrency:
   group: terraform-${{ github.repository }}-${{ github.ref }}
