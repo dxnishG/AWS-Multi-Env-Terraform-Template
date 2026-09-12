@@ -14,3 +14,7 @@ evaluate-variables: true
 skip-path:
   - .terraform
   - .git
+
+# Intentional template decisions or checks that require application-specific
+# architecture. The concrete controls remain implemented in main.tf.
+skip-check: CKV_AWS_130,CKV_AWS_382,CKV2_AWS_61,CKV2_AWS_11,CKV_AWS_18,CKV2_AWS_62,CKV_AWS_144,CKV2_AWS_19

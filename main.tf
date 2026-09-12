@@ -44,6 +44,12 @@ resource "aws_vpc" "this" {
   tags = { Name = "${local.name_prefix}-vpc" }
 }
 
+resource "aws_default_security_group" "this" {
+  vpc_id = aws_vpc.this.id
+
+  tags = { Name = "${local.name_prefix}-default-sg" }
+}
+
 resource "aws_internet_gateway" "this" {
   count  = length(var.public_subnet_configs) > 0 ? 1 : 0
   vpc_id = aws_vpc.this.id
@@ -313,6 +319,14 @@ resource "aws_instance" "this" {
   iam_instance_profile = aws_iam_instance_profile.ec2.name
 
   associate_public_ip_address = each.value.role == "web"
+  ebs_optimized               = true
+  monitoring                  = true
+
+  metadata_options {
+    http_endpoint               = "enabled"
+    http_tokens                 = "required"
+    http_put_response_hop_limit = 2
+  }
 
   root_block_device {
     volume_size           = each.value.volume_size
@@ -360,7 +374,8 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "this" {
   bucket = aws_s3_bucket.this[each.key].id
   rule {
     apply_server_side_encryption_by_default {
-      sse_algorithm = "AES256"
+      sse_algorithm     = "aws:kms"
+      kms_master_key_id = "alias/aws/s3"
     }
     bucket_key_enabled = true
   }

@@ -85,14 +85,25 @@ jobs:
           set -euo pipefail
 
           VERSION="1.7.12"
+          ASSET="actionlint_${VERSION}_linux_amd64.tar.gz"
 
           curl \
             --fail \
             --silent \
             --show-error \
             --location \
-            "https://github.com/rhysd/actionlint/releases/download/v${VERSION}/actionlint_${VERSION}_linux_x86_64.tar.gz" \
+            "https://github.com/rhysd/actionlint/releases/download/v${VERSION}/${ASSET}" \
             --output actionlint.tar.gz
+
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --location \
+            "https://github.com/rhysd/actionlint/releases/download/v${VERSION}/actionlint_${VERSION}_checksums.txt" \
+            --output actionlint_checksums.txt
+
+          grep " ${ASSET}$" actionlint_checksums.txt | sha256sum --check --status
 
           tar -xzf actionlint.tar.gz actionlint
 
