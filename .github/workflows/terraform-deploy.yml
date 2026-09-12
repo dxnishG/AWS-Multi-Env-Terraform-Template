@@ -1,0 +1,53 @@
+name: Terraform Deploy
+
+on:
+  workflow_call:
+    inputs:
+      environments:
+        required: true
+        type: string
+
+    secrets:
+      TF_TOKEN:
+        required: true
+
+env:
+  TF_VERSION: "1.9.0"
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          cli_config_credentials_token: ${{ secrets.TF_TOKEN }}
+          terraform_wrapper: false
+
+      - name: Deploy environments
+        shell: bash
+        env:
+          ENVIRONMENTS: ${{ inputs.environments }}
+        run: |
+          set -euo pipefail
+
+          while IFS= read -r environment; do
+            echo "=========================================="
+            echo "Deploying $environment"
+            echo "=========================================="
+
+            terraform init \
+              -reconfigure \
+              -backend-config="envs/${environment}/${environment}.tfconfig"
+
+            terraform apply \
+              -auto-approve \
+              -var-file="envs/${environment}/${environment}.tfvars"
+
+          done < <(jq -r '.[]' <<< "$ENVIRONMENTS")

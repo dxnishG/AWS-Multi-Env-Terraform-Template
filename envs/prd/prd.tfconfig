@@ -1,0 +1,6 @@
+hostname     = "app.terraform.io"
+organization = "Danish-TF"
+
+workspaces {
+  name = "AWS-Multi-Env-Terraform-Template-prd"
+}

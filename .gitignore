@@ -1,0 +1,28 @@
+# Local .terraform directories
+**/.terraform/*
+.terraform/
+.terraform.lock.hcl
+
+# State files and crash logs
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+
+# Plan files
+*.tfplan
+*.plan
+
+# Local credentials and overrides
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
