@@ -20,7 +20,7 @@ app_port          = 8080
 health_check_path = "/health"
 s3_buckets = {
   assets  = { purpose = "Application assets" }
-  backups = { purpose = "Application exports; EC2 snapshots are stored in AWS Backup" }
+  backups = { purpose = "Application exports" }
 }
 tags = {
   Project    = "MyApp"
