@@ -1,0 +1,30 @@
+# ==============================================================================
+# .terraformignore — Files excluded when packaging for TFE remote execution
+# ==============================================================================
+
+# Git & CI/CD workflow files (not needed inside TFE execution container)
+.git/
+.github/
+
+# Local terraform cache & lock files
+.terraform/
+**/.terraform/*
+
+# State and plan artifacts
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.plan
+crash.log
+crash.*.log
+
+# Local credentials & configs
+.terraformrc
+terraform.rc
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Documentation
+*.md

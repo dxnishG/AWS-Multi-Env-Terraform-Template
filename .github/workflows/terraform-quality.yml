@@ -1,0 +1,177 @@
+name: Terraform Quality
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+env:
+  TF_VERSION: "1.9.8"
+  TFLINT_VERSION: "v0.64.0"
+  CHECKOV_VERSION: "3.3.8"
+  ACTIONLINT_VERSION: "1.7.12"
+
+jobs:
+
+  terraform:
+    name: Terraform Validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Terraform Format
+        run: terraform fmt -check -recursive
+
+      - name: Terraform Init
+        run: |
+          rm -rf .terraform
+          terraform init -backend=false -input=false
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform contract tests
+        run: terraform test
+
+      - name: Rollout gate tests
+        run: python3 .github/scripts/test_verify_rollout.py
+
+
+  tflint:
+    name: TFLint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - name: Setup TFLint
+        uses: terraform-linters/setup-tflint@b480b8fcdaa6f2c577f8e4fa799e89e756bb7c93 # v6.2.2
+        with:
+          tflint_version: ${{ env.TFLINT_VERSION }}
+          cache: true
+
+      - name: Initialize TFLint
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: tflint --init
+
+      - name: Run TFLint
+        run: tflint --recursive --format compact
+
+
+  checkov:
+    name: Checkov
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - name: Install Checkov
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check \
+            "checkov==${CHECKOV_VERSION}"
+
+      - name: Run Checkov
+        run: checkov --config-file .checkov.yml
+
+
+  trivy:
+    name: Trivy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - name: Run Trivy
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: v0.74.0
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret
+          trivy-config: trivy.yaml
+
+
+  actionlint:
+    name: Actionlint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - name: Run Actionlint
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          VERSION="${ACTIONLINT_VERSION}"
+          ASSET="actionlint_${VERSION}_linux_amd64.tar.gz"
+
+          echo "Downloading actionlint ${VERSION}..."
+
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --location \
+            "https://github.com/rhysd/actionlint/releases/download/v${VERSION}/${ASSET}" \
+            --output "${ASSET}"
+
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --location \
+            "https://github.com/rhysd/actionlint/releases/download/v${VERSION}/actionlint_${VERSION}_checksums.txt" \
+            --output actionlint_checksums.txt
+
+          echo "Verifying checksum..."
+
+          grep " ${ASSET}$" actionlint_checksums.txt |
+            sha256sum --check --status
+
+          tar -xzf "${ASSET}" actionlint
+
+          echo
+          echo "Actionlint version:"
+          ./actionlint -version
+
+          echo
+          echo "Linting GitHub Actions workflows..."
+
+          ./actionlint \
+            -color \
+            -oneline
+
+          echo
+          echo "All GitHub Actions workflows passed actionlint."

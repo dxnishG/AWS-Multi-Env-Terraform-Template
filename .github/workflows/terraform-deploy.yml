@@ -1,0 +1,113 @@
+name: Terraform Deploy
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+    secrets:
+      TF_TOKEN:
+        required: true
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+env:
+  TF_VERSION: "1.9.8"
+  TF_IN_AUTOMATION: "true"
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+      - name: Check deployment protections
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          set -euo pipefail
+          case "$ENVIRONMENT" in dev|acc|prd) ;; *) exit 1 ;; esac
+          if [ "$ENVIRONMENT" = prd ]; then
+            gh api "repos/$GITHUB_REPOSITORY/environments/prd" > "$RUNNER_TEMP/prd-environment.json"
+            jq -e '.protection_rules | any(.type == "required_reviewers" and .prevent_self_review == true and (.reviewers | length > 0))' "$RUNNER_TEMP/prd-environment.json"
+            jq -e '.deployment_branch_policy != null' "$RUNNER_TEMP/prd-environment.json"
+          fi
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          cli_config_credentials_token: ${{ secrets.TF_TOKEN }}
+          cli_config_credentials_hostname: ${{ vars.TF_HOSTNAME || 'app.terraform.io' }}
+          terraform_wrapper: false
+      - name: Save remote plan
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          set -euo pipefail
+          cp "envs/$ENVIRONMENT/$ENVIRONMENT.tfvars" terraform.auto.tfvars
+          rm -rf .terraform
+          terraform init -input=false -backend-config="envs/$ENVIRONMENT/$ENVIRONMENT.tfconfig"
+          terraform plan -input=false -lock-timeout=5m -out=deployment.tfplan
+          sha256sum deployment.tfplan > deployment.sha256
+          printf '%s\n' "$GITHUB_SHA" > deployment.commit
+      - name: Store plan reference
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: plan-${{ inputs.environment }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            deployment.tfplan
+            deployment.sha256
+            deployment.commit
+          retention-days: 1
+          if-no-files-found: error
+  apply:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: ${{ inputs.environment }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          cli_config_credentials_token: ${{ secrets.TF_TOKEN }}
+          cli_config_credentials_hostname: ${{ vars.TF_HOSTNAME || 'app.terraform.io' }}
+          terraform_wrapper: false
+      - name: Download this run's plan
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: plan-${{ inputs.environment }}-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Verify and apply saved plan
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+          APPLICATION_URL: ${{ vars.APPLICATION_URL }}
+          VERIFY_ROLE: ${{ vars.AWS_VERIFY_ROLE_ARN }}
+        run: |
+          set -euo pipefail
+          test -n "$APPLICATION_URL"
+          test -n "$VERIFY_ROLE"
+          test "$(cat deployment.commit)" = "$GITHUB_SHA"
+          sha256sum --check deployment.sha256
+          cp "envs/$ENVIRONMENT/$ENVIRONMENT.tfvars" terraform.auto.tfvars
+          rm -rf .terraform
+          terraform init -input=false -backend-config="envs/$ENVIRONMENT/$ENVIRONMENT.tfconfig"
+          terraform apply -input=false deployment.tfplan
+          terraform output -json > "$RUNNER_TEMP/terraform-outputs.json"
+          echo "AWS_REGION=$(jq -r '.aws_region.value' "$RUNNER_TEMP/terraform-outputs.json")" >> "$GITHUB_ENV"
+      - name: Assume read-only rollout verification role
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        with:
+          role-to-assume: ${{ vars.AWS_VERIFY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Verify rollout and application readiness
+        env:
+          APPLICATION_URL: ${{ vars.APPLICATION_URL }}
+        run: python3 .github/scripts/verify_rollout.py "$RUNNER_TEMP/terraform-outputs.json"

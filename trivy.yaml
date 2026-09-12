@@ -1,0 +1,16 @@
+format: table
+
+exit-code: 1
+
+severity:
+  - HIGH
+  - CRITICAL
+
+vulnerability:
+  ignore-unfixed: false
+
+scan:
+  skip-dirs:
+    - .git
+    - .terraform
+    - "**/.terraform"

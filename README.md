@@ -1,154 +1,391 @@
-# AWS application hosting stack with Terraform
+# AWS Multi-Environment Terraform Template
 
-This repository is a reusable Terraform root configuration for a small application-hosting stack on AWS. It creates a VPC, public and private subnets, routing, security groups, EC2 instances, an EC2 IAM instance profile, and encrypted S3 buckets. The same root configuration is used for `dev`, `acc`, and `prd`; each environment supplies its own `.tfvars` file.
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-Terraform state is stored in Terraform Cloud or Terraform Enterprise (TFC/TFE) through the `remote` backend. GitHub Actions runs plans for every push and pull request, then applies environments sequentially only after a push to `main` or an explicit workflow dispatch.
+A production-oriented Terraform starter for running a stateless application on
+AWS across development, acceptance, and production environments.
 
-## What it creates
+The template creates the same architecture in every environment, isolates state
+in separate HCP Terraform or Terraform Enterprise workspaces, and promotes a
+tested revision through **dev → acc → prd**.
 
-- A VPC with DNS support enabled.
-- Public subnets with an internet gateway and public route table.
-- Private subnets with an optional single NAT Gateway and private route table.
-- A web security group with configurable CIDR-based ingress rules.
-- An app security group that accepts `app_port` from the web security group, plus optional CIDR rules.
-- EC2 instances created from the `ec2_instances` map. `role = "web"` places an instance in a public subnet; `role = "app"` places it in a private subnet.
-- An EC2 IAM role and instance profile with Systems Manager access. If S3 buckets are configured, the role also receives object and bucket-list permissions for those buckets.
-- Optional RSA SSH key-pair generation. The generated private key is stored in Terraform state; see [Key-pair handling](#key-pair-handling).
-- S3 buckets with AES-256 server-side encryption and public-access blocking. Versioning is enabled per bucket.
-
-The template does not install an operating system application, create a load balancer, create a database, or configure DNS. AMIs, application deployment, patching, and monitoring remain outside this root configuration.
+> This repository provisions infrastructure around an application. It expects
+> a tested application AMI, ACM certificate, DNS name, and operations SNS topic.
+> It does not build the application or its AMI.
 
 ## Architecture
 
-```mermaid
+~~~mermaid
 flowchart TB
-    dev[dev.tfvars] --> root[Terraform root configuration]
-    acc[acc.tfvars] --> root
-    prd[prd.tfvars] --> root
-    root --> vpc[VPC]
-    vpc --> public[Public subnets]
-    vpc --> private[Private subnets]
-    public --> igw[Internet Gateway]
-    private --> nat{NAT enabled?}
-    nat -->|yes| natgw[NAT Gateway]
-    web[Web EC2 instances] --> public
-    app[App EC2 instances] --> private
-    web --> websg[Web security group]
-    app --> appsg[App security group]
-    websg --> appsg
-    root --> s3[Encrypted, private S3 buckets]
-    root --> iam[EC2 instance role and profile]
-    iam --> ssm[Systems Manager]
-    iam --> s3
-    gha[GitHub Actions] --> tfe[TFC/TFE remote workspace]
-    tfe --> root
-```
+    Internet((Internet))
+    DNS[Route 53 or external DNS]
+    subgraph AWS["AWS account / region"]
+        WAF[AWS WAF<br/>managed rules + rate limit]
+        SNS[Operations SNS topic]
+        subgraph VPC["VPC"]
+            ALB[Application Load Balancer<br/>HTTPS :443]
+            subgraph PublicA["Public subnet · AZ A"]
+                NATA[NAT Gateway]
+            end
+            subgraph PublicB["Public subnet · AZ B"]
+                NATB[NAT Gateway]
+            end
+            subgraph PrivateA["Private subnet · AZ A"]
+                EC2A[EC2 application instance]
+            end
+            subgraph PrivateB["Private subnet · AZ B"]
+                EC2B[EC2 application instance]
+            end
 
-## Repository layout
+            ASG[Auto Scaling Group]
+            S3EP[S3 gateway endpoint]
+        end
 
-```text
-.
-├── main.tf                       # Network, security, IAM, EC2, and S3 resources
-├── variables.tf                  # Typed and validated input contract
-├── output.tf                     # IDs, addresses, bucket names, and profile name
-├── provider.tf                   # AWS region and default tags
-├── backend.tf                    # Partial TFC/TFE remote backend
-├── versions.tf                   # Terraform and provider constraints
-├── envs/<env>/<env>.tfvars       # Environment infrastructure values
-├── envs/<env>/<env>.tfconfig     # TFC/TFE hostname, organization, and workspace
-└── .github/workflows/            # Plan and sequential apply workflows
-```
+        S3[(Versioned S3 buckets<br/>customer-managed KMS)]
+        Backup[(AWS Backup vault<br/>daily EC2 recovery points)]
+        Logs[(ALB + S3 access logs<br/>VPC flow logs + WAF logs)]
+        CW[CloudWatch alarms]
+        SSM[AWS Systems Manager]
+    end
 
-## Required authentication and secrets
+    Internet --> DNS --> WAF --> ALB
+    ALB -->|HTTP on app_port| EC2A
+    ALB -->|HTTP on app_port| EC2B
+    ASG -. manages .-> EC2A
+    ASG -. manages .-> EC2B
+    EC2A --> NATA
+    EC2B --> NATB
+    EC2A --> S3EP --> S3
+    EC2B --> S3EP
+    SSM --> EC2A
+    SSM --> EC2B
+    EC2A -. snapshots .-> Backup
+    EC2B -. snapshots .-> Backup
+    ALB -. access logs .-> Logs
+    WAF -. logs .-> Logs
+    CW --> SNS
+~~~
 
-There are two separate authentication paths. Do not put AWS access keys in GitHub Actions unless you intentionally choose a GitHub-to-AWS deployment design; this workflow delegates Terraform execution to TFC/TFE.
+### What is included
 
-| Credential | Where it goes | Required for | Purpose |
-|---|---|---|---|
-| `TF_TOKEN` | GitHub repository secret: **Settings > Secrets and variables > Actions** | GitHub Actions | Lets the runner authenticate to TFC/TFE and trigger remote runs. |
-| TFC/TFE user or team token | Local Terraform CLI credential store via `terraform login` | Local runs | Lets the local CLI initialize the remote backend and trigger plans/applies. |
-| AWS credentials or dynamic provider credentials | TFC/TFE workspace or variable set | Remote plan/apply | Lets the TFC/TFE worker call AWS. Prefer short-lived dynamic credentials/OIDC. |
+- Two or more Availability Zones with one NAT gateway and private route table
+  per AZ.
+- Public HTTPS ALB with deletion protection, access logs, strict desync
+  mitigation, TLS 1.2/1.3 policy, AWS managed WAF rules, and an IP rate limit.
+- Private EC2 instances with no public IPs or SSH keys. Administration uses SSM.
+- Auto Scaling with ELB health replacement, CPU target tracking, and rolling
+  instance refresh with automatic rollback.
+- IMDSv2, encrypted EBS volumes, detailed monitoring, and a pinned AMI.
+- Versioned S3 buckets encrypted with a rotating customer-managed KMS key.
+- VPC flow logs, WAF logs, S3 access logs, and CloudWatch health alarms.
+- Daily AWS Backup recovery points retained for 35 days.
+- Exact saved-plan deployment with ordered **dev → acc → prd** promotion.
+- Terraform contract tests, TFLint, Checkov, Trivy, and actionlint in CI.
 
-For static AWS credentials in TFC/TFE, configure these as **sensitive environment variables**, never in `.tfvars` or committed files:
+## Before you start
 
-```text
-AWS_ACCESS_KEY_ID
-AWS_SECRET_ACCESS_KEY
-AWS_SESSION_TOKEN       # only for temporary credentials
-```
+You need:
 
-`AWS_DEFAULT_REGION` is optional because the AWS provider uses `aws_region` from the selected `.tfvars` file. Set it as a workspace environment variable if other AWS tooling in the workspace needs it.
+1. Terraform 1.9.x.
+2. An AWS account for each environment, or one account with a deliberate
+   isolation model.
+3. An HCP Terraform or Terraform Enterprise organization with three
+   CLI-driven workspaces.
+4. A regional application AMI that:
+   - contains the deployable application;
+   - runs on boot;
+   - listens on the configured app_port;
+   - returns HTTP 200 from the configured health path;
+   - includes a working SSM agent;
+   - stores durable data outside the instance root volume.
+5. An issued ACM certificate in each target account and region.
+6. An SNS topic with at least one confirmed operations subscription.
+7. A DNS hostname covered by the ACM certificate.
 
-### Assume-role clarification
+This architecture creates NAT gateways, an ALB, WAF resources, KMS keys, logs,
+and backups in every environment. Review AWS pricing before deployment.
 
-The repository does not define an AWS provider `assume_role` block. The `sts:AssumeRole` policy in `main.tf` is an EC2 service trust policy: it allows EC2 to assume the instance role after launch. It is not the role used by Terraform to deploy the stack.
+## Quick start
 
-For deployment through a role, configure TFC/TFE dynamic provider credentials/OIDC and grant the TFC/TFE identity permission to assume the target AWS role. Alternatively, provide an AWS credential chain supported by the TFC/TFE worker. The target role needs permissions for the resources in this repository, including VPC, EC2, IAM, S3, and Systems Manager operations.
+### 1. Create the remote workspaces
 
-## TFC/TFE setup
+Create three CLI-driven workspaces:
 
-1. Create one workspace per environment, for example `myapp-dev`, `myapp-acc`, and `myapp-prd`.
-2. Set each workspace to **Remote** execution.
-3. Replace `your-tfe-org` in each `envs/<env>/<env>.tfconfig` with the real organization name. Change `hostname` when using Terraform Enterprise.
-4. Configure AWS credentials or dynamic provider credentials in each workspace/variable set.
-5. Add `TF_TOKEN` to the GitHub repository secret store.
-6. Ensure the workspace policy permits the Terraform identity to create and manage the resources listed above.
+- aws-app-dev
+- aws-app-acc
+- aws-app-prd
 
-The workspace names and backend config are intentionally separate from the infrastructure values. To reuse this template, copy an environment directory, change its workspace name and `.tfvars`, then add that environment to `ENVIRONMENTS` in `.github/workflows/terraform.yml`.
+Keep VCS integration disconnected and automatic apply disabled. GitHub Actions
+is the deployment controller.
 
-## Local workflow
+Edit the backend files with your organization and workspace names:
 
-Prerequisites: Terraform `>= 1.5.0`, AWS permissions available to the selected TFC/TFE workspace, and access to the configured organization.
+~~~hcl
+# envs/dev/dev.tfconfig
+hostname     = "app.terraform.io"
+organization = "YOUR_TERRAFORM_ORGANIZATION"
 
-```bash
-terraform login
+workspaces {
+  name = "aws-app-dev"
+}
+~~~
 
-ENV=dev
-terraform init \
-  -reconfigure \
-  -backend-config="envs/${ENV}/${ENV}.tfconfig"
+Repeat for acc and prd. Change hostname when using Terraform Enterprise.
 
+### 2. Configure AWS authentication
+
+Configure short-lived AWS dynamic provider credentials in each remote
+workspace. Prefer one deployment role per environment and separate AWS accounts.
+Do not store AWS access keys in this repository or GitHub Actions.
+
+The deployment identity needs permissions for VPC, EC2, Auto Scaling, ELB,
+WAFv2, IAM, S3, KMS, CloudWatch Logs and alarms, AWS Backup, and Systems Manager
+resources declared by this repository.
+
+### 3. Set required workspace variables
+
+Create these Terraform variables in every remote workspace:
+
+| Variable | Example | Purpose |
+| --- | --- | --- |
+| aws_account_id | 123456789012 | Prevents deployment to the wrong AWS account |
+| ami_id | ami-0123456789abcdef0 | Pins the tested application image |
+| certificate_arn | arn:aws:acm:us-east-1:123456789012:certificate/... | Enables the HTTPS listener |
+| alarm_topic_arn | arn:aws:sns:us-east-1:123456789012:operations | Receives health and backup alarms |
+
+These values are environment-specific and intentionally absent from committed
+tfvars files. They are identifiers rather than application secrets, but
+workspace variables prevent accidental reuse across accounts and regions.
+
+### 4. Customize each environment
+
+Edit:
+
+- envs/dev/dev.tfvars
+- envs/acc/acc.tfvars
+- envs/prd/prd.tfvars
+
+At minimum, change name_prefix, CIDRs, Availability Zones, instance type,
+capacity, bucket definitions, and tags. name_prefix becomes part of globally
+unique S3 bucket names, so use a value specific to your organization/application.
+
+Public and private subnet maps must contain at least two distinct Availability
+Zones. Every private subnet must have a public subnet in the same AZ.
+
+### 5. Run local validation
+
+~~~bash
+terraform init -backend=false -input=false -lockfile=readonly
 terraform fmt -check -recursive
 terraform validate
-terraform plan \
-  -var-file="envs/${ENV}/${ENV}.tfvars"
+terraform test
+~~~
 
-# Apply only after reviewing the plan.
-terraform apply \
-  -var-file="envs/${ENV}/${ENV}.tfvars"
-```
+The tests use Terraform mock providers. They validate module contracts without
+AWS credentials or live infrastructure.
 
-Use `terraform init -reconfigure` when switching between environment backends. Do not run different environments concurrently from the same working directory; each initialization changes the selected remote workspace.
+### 6. Review the first environment plan
 
-## GitHub Actions workflow
+~~~bash
+terraform login
+cp envs/dev/dev.tfvars terraform.auto.tfvars
 
-- `terraform.yml` builds a matrix from the `ENVIRONMENTS` list, formats and validates the configuration, and creates a remote plan for each environment on pushes and pull requests.
-- The reusable deploy workflow applies environments in the order supplied by the matrix, only on `main` or a manually requested apply.
-- Pull requests from forks cannot access repository secrets, so their remote plan jobs will not authenticate unless the workflow is adapted for that trust model.
+terraform init \
+  -reconfigure \
+  -input=false \
+  -lockfile=readonly \
+  -backend-config=envs/dev/dev.tfconfig
 
-## Key-pair handling
+terraform plan -out=deployment.tfplan
+terraform apply deployment.tfplan
+~~~
 
-With `create_key_pair = true`, Terraform generates an RSA private key and stores it in Terraform state. Because remote state may contain the private key, protect the TFC/TFE workspace and state access accordingly. For production, consider managing the EC2 key pair outside Terraform and set:
+The last command applies the exact saved remote plan. Remove
+terraform.auto.tfvars before switching environments, or use separate working
+directories. The file and plan artifacts are ignored by Git.
 
-```hcl
-create_key_pair = false
-key_name        = "an-existing-ec2-key-pair"
-```
+After the apply, create a DNS alias/CNAME from the application hostname to the
+application_dns_name output and verify the HTTPS health endpoint.
 
-SSM access is enabled on every instance, so SSH is optional for normal administration.
+## GitHub Actions setup
 
-## Important cost and deletion notes
+Pull requests run the quality gate and a Terraform plan for each environment:
+dev, acc, and prd. A push to main runs the quality gate, then starts the
+promotion sequence; only then can Terraform apply run. The promotion workflow
+creates one saved plan per environment and applies that exact plan.
 
-- NAT Gateways and public IPv4 addresses incur AWS charges. `enable_nat_gateway` is disabled in the example `dev` environment and enabled in `acc` and `prd`.
-- `force_destroy = true` allows Terraform to delete non-empty S3 buckets. Keep it `false` for important data.
-- A single NAT Gateway is created in the first public subnet when enabled. This keeps the template simple but is not a multi-AZ NAT design.
-- The default EC2 AMI lookup selects the most recent Amazon Linux 2023 x86_64 AMI in the configured region. Set `ami_id` to pin a known image.
+### Repository settings
 
-## Reuse checklist
+| Type | Name | Value |
+| --- | --- | --- |
+| Secret | TF_TOKEN | HCP Terraform/TFE token limited to the three workspaces |
+| Variable | TF_HOSTNAME | TFE hostname; omit for app.terraform.io |
 
-1. Copy `envs/dev` to a new environment directory.
-2. Set a unique `environment`, CIDR ranges, AWS region, tags, and TFC/TFE workspace name.
-3. Define public/private subnet keys that match each EC2 instance's `subnet_key`.
-4. Keep web ingress narrow, especially SSH; prefer SSM instead of opening port 22.
-5. Set S3 `purpose`, `enable_versioning`, and an intentional `force_destroy` value.
-6. Add the environment to the workflow matrix and run a plan before applying.
+Create GitHub environments named dev, acc, and prd under
+**Settings → Environments**. Add these variables to each environment:
+
+| Name | Value |
+| --- | --- |
+| APPLICATION_URL | Full readiness URL, for example https://app.example.com/health |
+| AWS_VERIFY_ROLE_ARN | Read-only AWS role assumed through GitHub OIDC |
+
+The verification role needs:
+
+~~~json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Action": [
+      "autoscaling:DescribeAutoScalingGroups",
+      "autoscaling:DescribeInstanceRefreshes",
+      "elasticloadbalancing:DescribeTargetHealth"
+    ],
+    "Resource": "*"
+  }]
+}
+~~~
+
+Restrict its GitHub OIDC trust to:
+
+~~~text
+repo:OWNER/REPOSITORY:environment:ENVIRONMENT
+~~~
+
+For prd, configure required reviewers, prevention of self-review, and a
+deployment branch policy allowing main. Disable administrator bypass where your
+GitHub plan supports it. The workflow checks the first three controls before
+creating a production plan.
+
+Protect main separately with pull-request reviews and required quality checks.
+
+### Promotion sequence
+
+~~~mermaid
+sequenceDiagram
+    actor Operator
+    participant GH as GitHub Actions
+    participant TF as HCP Terraform/TFE
+    participant AWS
+
+    Operator->>GH: Merge pull request to main
+    GH->>GH: Quality and security checks
+    loop dev, then acc, then prd
+        GH->>TF: Create saved remote plan
+        TF->>AWS: Refresh current state
+        TF-->>GH: Saved plan reference
+        GH->>GH: Wait for environment approval
+        GH->>TF: Apply that exact saved plan
+        TF->>AWS: Reconcile infrastructure
+        GH->>AWS: Verify ASG version and ALB targets
+        GH->>AWS: Require 3 successful HTTPS health checks
+    end
+~~~
+
+A failed plan prevents deployment. A failed environment stops the promotion.
+The rollout gate waits up to 30 minutes and rejects failed/rolled-back instance refreshes, stale launch-template versions, insufficient capacity, unhealthy targets, and failed HTTPS readiness.
+
+## Configuration reference
+
+| Input | Type | Default | Notes |
+| --- | --- | --- | --- |
+| environment | string | required | One of dev, acc, prd |
+| aws_region | string | required | Must match AMI, ACM certificate, and SNS topic |
+| aws_account_id | string | required | Enforced by allowed_account_ids |
+| name_prefix | string | app | 2–16 lowercase letters, digits, or hyphens |
+| vpc_cidr | string | required | IPv4 VPC CIDR |
+| public_subnet_configs | map(object) | required | At least two subnets in distinct AZs |
+| private_subnet_configs | map(object) | required | At least two; AZs must match public subnets |
+| ami_id | string | required | No latest-AMI fallback |
+| certificate_arn | string | required | ACM ARN in target account/region |
+| alarm_topic_arn | string | required | SNS ARN in target account/region |
+| instance_type | string | t3.small | Must be compatible with the AMI |
+| app_port | number | 8080 | Reachable only from the ALB |
+| health_check_path | string | /health | Must begin with / |
+| min_size | number | 2 | Production rejects values below two |
+| max_size | number | 4 | Must exceed min_size for rolling headroom |
+| s3_buckets | map(object) | assets bucket | Buckets are versioned and protected |
+| tags | map(string) | empty map | Merged with environment/management tags |
+
+### Outputs
+
+| Output | Description |
+| --- | --- |
+| application_dns_name | ALB hostname used by your DNS record |
+| autoscaling_group_name | Application Auto Scaling group |
+| vpc_id | Environment VPC |
+| public_subnet_ids | Public subnet IDs by configured key |
+| private_subnet_ids | Private subnet IDs by configured key |
+| s3_bucket_names | Application bucket names |
+| backup_vault_name | AWS Backup vault |
+| target_group_arn | Used by rollout verification |
+| launch_template_version | Expected version after deployment |
+
+## Repository structure
+
+~~~text
+.
+├── main.tf                         # Composes the four modules
+├── variables.tf / output.tf       # Public root-module contract
+├── provider.tf / versions.tf      # AWS provider and version constraints
+├── backend.tf                     # Partial HCP Terraform/TFE backend
+├── envs/
+│   ├── dev/
+│   ├── acc/
+│   └── prd/                       # Values and backend config per environment
+├── modules/
+│   ├── network/
+│   ├── service/
+│   ├── storage/
+│   └── recovery/
+├── tests/                         # Terraform contract tests
+├── .github/
+│   ├── scripts/                   # CI rollout verifier and its unit test
+│   └── workflows/                 # Quality, saved-plan, and promotion workflows
+└── docs/                          # Migration, operations, and security notes
+~~~
+
+The root tests directory is intentional: terraform test discovers tftest.hcl
+files there. CI-only Python code lives under .github/scripts so the public
+module surface stays uncluttered.
+
+## Security and operational notes
+
+- S3 data buckets and KMS keys use Terraform prevent_destroy; ALB deletion
+  protection is enabled. Decommissioning requires an explicit reviewed change.
+- The application instance role can read/write configured bucket objects but
+  cannot delete them.
+- HTTP is used only between the ALB and instances inside the VPC. Add end-to-end
+  TLS if your threat model requires it.
+- WAF managed-rule false positives should be tested in dev and acc.
+- Backup recovery points remain in the same account and region. Add a separately
+  owned cross-account/cross-region vault when required by your RPO/RTO.
+- VPC, ALB, WAF, and S3 logs do not replace application logs and metrics.
+- This template supports the standard commercial AWS partition.
+
+Read:
+
+- [Operations and recovery](docs/OPERATIONS.md)
+- [Security scanner exceptions](docs/SECURITY.md)
+- [Migration from the earlier non-modular version](docs/MIGRATION.md)
+
+## Updating and extending
+
+Keep the root module as composition glue. Add reusable AWS behavior inside the
+module that owns it, expose only needed inputs/outputs, update contract tests,
+and run the full quality suite before publishing changes.
+
+Dependabot checks GitHub Actions and Terraform dependencies weekly. GitHub
+Actions are pinned to immutable commit SHAs; review and merge Dependabot updates
+to move those pins.
+
+If you are starting fresh, ignore the migration example under docs. If you
+already deployed the earlier repository version, follow the migration guide
+before planning: standalone EC2 instances cannot be converted in place to an
+Auto Scaling group.
+
+## License
+
+Licensed under the [Apache License 2.0](LICENSE). It permits commercial use,
+modification, and redistribution while preserving license and attribution
+notices and providing an explicit contributor patent grant.
