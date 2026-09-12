@@ -82,7 +82,7 @@ jobs:
           cli_config_credentials_hostname: ${{ vars.TF_HOSTNAME || 'app.terraform.io' }}
           terraform_wrapper: false
       - name: Download this run's plan
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: plan-${{ inputs.environment }}-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Verify and apply saved plan
