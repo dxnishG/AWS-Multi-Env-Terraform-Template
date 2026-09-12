@@ -42,7 +42,7 @@ resource "aws_backup_selection" "this" {
   name         = "${var.name}-instances"
   iam_role_arn = aws_iam_role.this.arn
   plan_id      = aws_backup_plan.this.id
-  resources    = ["arn:aws:ec2:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:instance/*"]
+  resources    = ["arn:aws:ec2:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:instance/*"]
   condition {
     string_equals {
       key   = "aws:ResourceTag/Backup"

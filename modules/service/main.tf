@@ -48,7 +48,7 @@ resource "aws_s3_bucket" "access_logs" {
   # checkov:skip=CKV_AWS_144:Regional access logs; cross-region retention belongs to the organization logging policy.
   # checkov:skip=CKV2_AWS_62:Passive log archive with no object-event consumer.
   # checkov:skip=CKV_AWS_145:ALB log delivery supports SSE-S3 only; this bucket contains access logs, not application data.
-  bucket        = "${var.name}-alb-logs-${data.aws_caller_identity.current.account_id}-${data.aws_region.current.name}"
+  bucket        = "${var.name}-alb-logs-${data.aws_caller_identity.current.account_id}-${data.aws_region.current.region}"
   force_destroy = false
 }
 resource "aws_s3_bucket_public_access_block" "access_logs" {
@@ -196,7 +196,7 @@ data "aws_iam_policy_document" "storage" {
     condition {
       test     = "StringEquals"
       variable = "kms:ViaService"
-      values   = ["s3.${data.aws_region.current.name}.amazonaws.com"]
+      values   = ["s3.${data.aws_region.current.region}.amazonaws.com"]
     }
   }
 }

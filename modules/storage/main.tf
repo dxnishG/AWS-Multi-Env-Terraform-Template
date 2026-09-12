@@ -15,7 +15,7 @@ resource "aws_s3_bucket" "this" {
   # checkov:skip=CKV_AWS_144:Regional baseline; cross-account/region replication requires an independently owned recovery destination.
   # checkov:skip=CKV2_AWS_62:No application object-event contract; add notifications with the consuming workload.
   for_each      = var.buckets
-  bucket        = "${var.name}-${each.key}"
+  bucket        = "${var.name}-${each.key}-${data.aws_caller_identity.current.account_id}"
   force_destroy = false
   tags          = { Name = "${var.name}-${each.key}", Purpose = each.value.purpose }
   lifecycle {
