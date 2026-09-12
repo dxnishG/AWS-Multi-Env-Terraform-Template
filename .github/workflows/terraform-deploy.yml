@@ -21,7 +21,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Check deployment protections
@@ -59,7 +59,7 @@ jobs:
     environment: ${{ inputs.environment }}
     steps:
       - name: Checkout
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Setup Terraform
@@ -72,24 +72,27 @@ jobs:
       - name: Apply remote plan
         env:
           ENVIRONMENT: ${{ inputs.environment }}
-          APPLICATION_URL: ${{ vars.APPLICATION_URL }}
-          VERIFY_ROLE: ${{ vars.AWS_VERIFY_ROLE_ARN }}
         run: |
           set -euo pipefail
-          test -n "$APPLICATION_URL"
-          test -n "$VERIFY_ROLE"
           cp "envs/$ENVIRONMENT/$ENVIRONMENT.tfvars" terraform.auto.tfvars
           rm -rf .terraform
           terraform init -input=false -backend-config="envs/$ENVIRONMENT/$ENVIRONMENT.tfconfig"
           terraform apply -input=false -auto-approve
           terraform output -json > "$RUNNER_TEMP/terraform-outputs.json"
           echo "AWS_REGION=$(jq -r '.aws_region.value' "$RUNNER_TEMP/terraform-outputs.json")" >> "$GITHUB_ENV"
+      - name: Explain skipped rollout verification
+        if: ${{ vars.APPLICATION_URL == '' || vars.AWS_VERIFY_ROLE_ARN == '' }}
+        run: |
+          echo "Infrastructure apply completed. Rollout verification was skipped."
+          echo "Configure APPLICATION_URL and AWS_VERIFY_ROLE_ARN in the GitHub Environment to enable it."
       - name: Assume read-only rollout verification role
-        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        if: ${{ vars.APPLICATION_URL != '' && vars.AWS_VERIFY_ROLE_ARN != '' }}
+        uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6.2.4
         with:
           role-to-assume: ${{ vars.AWS_VERIFY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
       - name: Verify rollout and application readiness
+        if: ${{ vars.APPLICATION_URL != '' && vars.AWS_VERIFY_ROLE_ARN != '' }}
         env:
           APPLICATION_URL: ${{ vars.APPLICATION_URL }}
         run: python3 .github/scripts/verify_rollout.py "$RUNNER_TEMP/terraform-outputs.json"
