@@ -209,9 +209,9 @@ application_dns_name output and verify the HTTPS health endpoint.
 
 ## GitHub Actions setup
 
-The workflow does not deploy on push. Pushes and pull requests run quality
-checks only. Deployment requires a manual workflow dispatch from main with
-deploy=true.
+Pushes and pull requests run the quality gate and a Terraform plan for each
+environment: dev, acc, and prd. A push to main starts the promotion sequence;
+only then can Terraform apply run.
 
 ### Repository settings
 
@@ -269,6 +269,7 @@ sequenceDiagram
 
     Operator->>GH: Dispatch from main with deploy=true
     GH->>GH: Quality and security checks
+    GH->>GH: Plan dev, acc, and prd
     loop dev, then acc, then prd
         GH->>TF: Create saved remote plan
         TF->>AWS: Refresh current state
@@ -281,9 +282,8 @@ sequenceDiagram
     end
 ~~~
 
-A failed environment stops the promotion. The rollout gate waits up to 30
-minutes and rejects failed/rolled-back instance refreshes, stale launch-template
-versions, insufficient capacity, unhealthy targets, and failed HTTPS readiness.
+A failed plan prevents deployment. A failed environment stops the promotion.
+The rollout gate waits up to 30 minutes and rejects failed/rolled-back instance refreshes, stale launch-template versions, insufficient capacity, unhealthy targets, and failed HTTPS readiness.
 
 ## Configuration reference
 
