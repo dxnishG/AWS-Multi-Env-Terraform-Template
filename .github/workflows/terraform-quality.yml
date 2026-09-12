@@ -103,10 +103,18 @@ jobs:
             "https://github.com/rhysd/actionlint/releases/download/v${VERSION}/actionlint_${VERSION}_checksums.txt" \
             --output actionlint_checksums.txt
 
-          grep " ${ASSET}$" actionlint_checksums.txt | sha256sum --check --status
+          grep " ${ASSET}$" actionlint_checksums.txt |
+            sha256sum --check --status
 
           tar -xzf "${ASSET}" actionlint
 
-          ./actionlint \
-            -color \
-            -oneline
+          echo "Actionlint version:"
+          ./actionlint -version
+
+          echo
+          echo "Linting GitHub Actions workflows..."
+
+          ./actionlint -color -oneline
+
+          echo
+          echo "✓ All GitHub Actions workflows passed actionlint."
