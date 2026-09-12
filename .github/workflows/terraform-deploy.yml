@@ -49,7 +49,8 @@ jobs:
         run: |
           set -euo pipefail
           cp "envs/$ENVIRONMENT/$ENVIRONMENT.tfvars" terraform.auto.tfvars
-          terraform init -input=false -lockfile=readonly -backend-config="envs/$ENVIRONMENT/$ENVIRONMENT.tfconfig"
+          rm -rf .terraform
+          terraform init -input=false -backend-config="envs/$ENVIRONMENT/$ENVIRONMENT.tfconfig"
           terraform plan -input=false -lock-timeout=5m -out=deployment.tfplan
           sha256sum deployment.tfplan > deployment.sha256
           printf '%s\n' "$GITHUB_SHA" > deployment.commit
@@ -96,7 +97,8 @@ jobs:
           test "$(cat deployment.commit)" = "$GITHUB_SHA"
           sha256sum --check deployment.sha256
           cp "envs/$ENVIRONMENT/$ENVIRONMENT.tfvars" terraform.auto.tfvars
-          terraform init -input=false -lockfile=readonly -backend-config="envs/$ENVIRONMENT/$ENVIRONMENT.tfconfig"
+          rm -rf .terraform
+          terraform init -input=false -backend-config="envs/$ENVIRONMENT/$ENVIRONMENT.tfconfig"
           terraform apply -input=false deployment.tfplan
           terraform output -json > "$RUNNER_TEMP/terraform-outputs.json"
           echo "AWS_REGION=$(jq -r '.aws_region.value' "$RUNNER_TEMP/terraform-outputs.json")" >> "$GITHUB_ENV"
