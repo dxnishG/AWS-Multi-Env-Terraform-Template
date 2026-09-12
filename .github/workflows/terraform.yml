@@ -4,12 +4,24 @@ on:
   push:
     paths:
       - "**/*.tf"
+      - "**/*.tfvars"
+      - "**/*.tfconfig"
+      - ".terraform.lock.hcl"
+      - ".tflint.hcl"
+      - ".checkov.yml"
+      - "trivy.yaml"
       - "envs/**"
       - ".github/workflows/**"
 
   pull_request:
     paths:
       - "**/*.tf"
+      - "**/*.tfvars"
+      - "**/*.tfconfig"
+      - ".terraform.lock.hcl"
+      - ".tflint.hcl"
+      - ".checkov.yml"
+      - "trivy.yaml"
       - "envs/**"
       - ".github/workflows/**"
 
@@ -20,10 +32,13 @@ on:
         type: boolean
         default: false
 
+permissions:
+  contents: read
+
 env:
   TF_VERSION: "1.9.0"
 
-  # To skip an environment just comment it out from ENVIRONMENTS.
+  # To skip an environment, comment it out here.
   ENVIRONMENTS: |
     dev
     acc
@@ -34,6 +49,10 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+
+  # ==========================================================================
+  # ENVIRONMENT MATRIX
+  # ==========================================================================
   environments:
     name: Build environment matrix
     runs-on: ubuntu-latest
@@ -60,9 +79,28 @@ jobs:
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
           echo "Environments: $matrix"
 
+
+  # ==========================================================================
+  # QUALITY + SECURITY GATE
+  #
+  # Nothing gets planned or deployed unless every quality/security control
+  # passes.
+  # ==========================================================================
+  quality:
+    name: Quality Gate
+    uses: ./.github/workflows/terraform-quality.yml
+
+
+  # ==========================================================================
+  # PLAN
+  # ==========================================================================
   plan:
     name: Plan (${{ matrix.environment }})
-    needs: environments
+
+    needs:
+      - environments
+      - quality
+
     runs-on: ubuntu-latest
 
     strategy:
@@ -70,12 +108,11 @@ jobs:
       matrix:
         environment: ${{ fromJSON(needs.environments.outputs.matrix) }}
 
-    permissions:
-      contents: read
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -90,18 +127,34 @@ jobs:
       - name: Terraform Init
         run: |
           terraform init \
+            -input=false \
             -backend-config="envs/${{ matrix.environment }}/${{ matrix.environment }}.tfconfig"
 
       - name: Terraform Validate
         run: terraform validate
 
       - name: Terraform Plan
+        shell: bash
+        env:
+          ENVIRONMENT: ${{ matrix.environment }}
         run: |
-          cp "envs/${{ matrix.environment }}/${{ matrix.environment }}.tfvars" terraform.auto.tfvars
-          terraform plan
+          set -euo pipefail
 
+          cp \
+            "envs/${ENVIRONMENT}/${ENVIRONMENT}.tfvars" \
+            terraform.auto.tfvars
+
+          terraform plan \
+            -input=false \
+            -lock-timeout=5m
+
+
+  # ==========================================================================
+  # DEPLOY
+  # ==========================================================================
   deploy:
     name: Deploy
+
     needs:
       - environments
       - plan
@@ -111,6 +164,7 @@ jobs:
       (github.event_name == 'workflow_dispatch' && inputs.run_apply)
 
     uses: ./.github/workflows/terraform-deploy.yml
+
     secrets: inherit
 
     with:

@@ -1,0 +1,16 @@
+framework:
+  - terraform
+
+compact: true
+
+quiet: true
+
+soft-fail: false
+
+download-external-modules: true
+
+evaluate-variables: true
+
+skip-path:
+  - .terraform
+  - .git

@@ -11,25 +11,34 @@ on:
       TF_TOKEN:
         required: true
 
+permissions:
+  contents: read
+
 env:
   TF_VERSION: "1.9.0"
 
 jobs:
   deploy:
     name: Deploy (${{ matrix.environment }})
+
     runs-on: ubuntu-latest
+
+    timeout-minutes: 30
 
     environment: ${{ matrix.environment }}
 
     strategy:
       max-parallel: 1
       fail-fast: true
+
       matrix:
         environment: ${{ fromJSON(inputs.environments) }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -49,11 +58,16 @@ jobs:
           echo "Deploying $ENVIRONMENT"
           echo "=========================================="
 
-          cp "envs/${ENVIRONMENT}/${ENVIRONMENT}.tfvars" terraform.auto.tfvars
+          cp \
+            "envs/${ENVIRONMENT}/${ENVIRONMENT}.tfvars" \
+            terraform.auto.tfvars
 
           terraform init \
+            -input=false \
             -reconfigure \
             -backend-config="envs/${ENVIRONMENT}/${ENVIRONMENT}.tfconfig"
 
           terraform apply \
+            -input=false \
+            -lock-timeout=5m \
             -auto-approve

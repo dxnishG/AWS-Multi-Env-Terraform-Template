@@ -2,7 +2,7 @@
 
 This repository is a reusable Terraform root configuration for a small application-hosting stack on AWS. It creates a VPC, public and private subnets, routing, security groups, EC2 instances, an EC2 IAM instance profile, and encrypted S3 buckets. The same root configuration is used for `dev`, `acc`, and `prd`; each environment supplies its own `.tfvars` file.
 
-Terraform state is stored in Terraform Cloud or Terraform Enterprise (TFC/TFE) through the `remote` backend. GitHub Actions runs plans for every push and pull request, then applies environments sequentially only after a push to `main` or an explicit workflow dispatch with `run_apply` enabled.
+Terraform state is stored in Terraform Cloud or Terraform Enterprise (TFC/TFE) through the `remote` backend. GitHub Actions runs security, correctness, formatting, validation, and plan checks for every push and pull request. Applies run only after a push to `main` or an explicit workflow dispatch with `run_apply` enabled.
 
 ## What it creates
 
@@ -22,6 +22,7 @@ The template does not install an operating system application, create a load bal
 
 ```mermaid
 flowchart TB
+  subgraph infrastructure[Terraform infrastructure]
     dev[dev.tfvars] --> root[Terraform root configuration]
     acc[acc.tfvars] --> root
     prd[prd.tfvars] --> root
@@ -40,14 +41,31 @@ flowchart TB
     root --> iam[EC2 instance role and profile]
     iam --> ssm[Systems Manager]
     iam --> s3
-    gha[GitHub Actions] --> plan[Plan matrix: dev / acc / prd]
-    plan --> tfe[TFC/TFE remote workspaces]
-    tfe --> root
-    plan --> deploy{Deploy gate}
-    deploy -->|main or manual apply| githubenv[GitHub Environments]
-    githubenv --> apply[Sequential apply matrix]
-    apply --> tfe
+  end
+
+  subgraph pipeline[GitHub Actions pipeline]
+    change[Push or pull request] --> quality[Quality gate]
+    quality --> tflint[TFLint<br/>Terraform and AWS rules]
+    quality --> checkov[Checkov<br/>Security and compliance]
+    quality --> trivy[Trivy<br/>Secrets and vulnerabilities]
+    quality --> actionlint[actionlint<br/>Workflow correctness]
+    tflint --> fmt[terraform fmt]
+    checkov --> fmt
+    trivy --> fmt
+    actionlint --> fmt
+    fmt --> validate[terraform validate]
+    validate --> plans[Plan matrix<br/>dev / acc / prd]
+    plans --> remote[TFC/TFE remote workspaces]
+    remote --> deploygate{Deploy gate}
+    deploygate -->|main or manual apply| approval[GitHub Environment approval]
+    approval --> deploy[Serialized deploy matrix]
+    deploy --> remote
+  end
+
+  remote --> root
 ```
+
+The quality checks run in parallel and all must pass before the environment plan matrix starts. Plans also run in parallel, one per Terraform Cloud workspace. Deployment uses a serialized matrix (`max-parallel: 1`) and attaches each job to a GitHub Environment named for the target environment. Configure required reviewers on those GitHub Environments to add approval gates.
 
 ## Repository layout
 
@@ -61,7 +79,10 @@ flowchart TB
 ├── versions.tf                   # Terraform and provider constraints
 ├── envs/<env>/<env>.tfvars       # Environment infrastructure values
 ├── envs/<env>/<env>.tfconfig     # TFC/TFE hostname, organization, and workspace
-└── .github/workflows/            # Plan and sequential apply workflows
+├── .github/workflows/            # Quality, plan, and deployment workflows
+├── .tflint.hcl                   # TFLint Terraform and AWS rules
+├── .checkov.yml                  # Checkov security configuration
+└── trivy.yaml                    # Trivy secret and vulnerability configuration
 ```
 
 The CI workflow creates a temporary root-level `terraform.auto.tfvars` file from the selected environment file. It is ignored by Git and is used because the Terraform `remote` backend does not support passing run variables with `terraform plan -var-file` or `terraform apply -var-file`.
@@ -129,12 +150,14 @@ The `cp` command creates the auto-loaded variables file required by the `remote`
 
 ## GitHub Actions workflow
 
-- `terraform.yml` builds a matrix from the `ENVIRONMENTS` list (`dev`, `acc`, and `prd`), formats and validates the configuration, and creates a remote plan for each environment on pushes and pull requests.
+- `terraform.yml` triggers on Terraform, environment, workflow, and quality-configuration changes.
+- The reusable `terraform-quality.yml` workflow runs TFLint, Checkov, Trivy, and actionlint. Every quality job must pass before planning begins.
+- Terraform planning runs `terraform fmt -check -recursive`, `terraform validate`, and a remote plan for each environment in the `ENVIRONMENTS` list (`dev`, `acc`, and `prd`).
 - The TFC/TFE workspaces must be CLI-driven with no VCS repository connection. GitHub Actions is the single workflow trigger and passes the selected environment variables to each remote run.
 - The workflow authenticates to Terraform Cloud using the GitHub repository secret `TF_TOKEN`. AWS credentials are provided to the remote Terraform Cloud workspaces by the assigned AWS credentials variable set.
 - Each plan copies its matching `envs/<env>/<env>.tfvars` file to `terraform.auto.tfvars` before running `terraform plan`.
 - A successful plan on a feature branch does not deploy. The reusable deploy workflow runs only after a push to `main`, or when a workflow is manually dispatched with `run_apply: true`.
-- The deploy workflow applies `dev`, `acc`, and `prd` sequentially through a matrix with `max-parallel: 1`, using the same auto-loaded variable-file mechanism.
+- The deploy workflow applies the environments through a matrix with `max-parallel: 1`, using the same auto-loaded variable-file mechanism. This serializes deployments, but a matrix alone does not guarantee DEV → ACC → PRD start order.
 - Each deploy matrix job sets `environment: <env>`, so GitHub records a separate deployment for each environment. Create matching environments under **Repository settings > Environments**; protection rules such as required reviewers can be configured there.
 - Pull requests from forks cannot access repository secrets, so their remote plan jobs will not authenticate unless the workflow is adapted for that trust model.
 
