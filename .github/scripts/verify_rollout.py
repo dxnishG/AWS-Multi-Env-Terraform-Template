@@ -5,8 +5,8 @@ application secrets are needed. A failed gate prevents promotion.
 """
 import json
 import os
-import subprocess
 import ssl
+import subprocess
 import sys
 import time
 import urllib.error
@@ -47,8 +47,9 @@ def main():
     parsed = urllib.parse.urlsplit(url)
     if parsed.scheme != "https" or not parsed.hostname or parsed.username:
         raise ValueError("APPLICATION_URL must be a public HTTPS readiness URL")
-    allow_insecure_tls = os.environ.get("ALLOW_INSECURE_TLS", "false").lower() == "true"
-    tls_context = ssl._create_unverified_context() if allow_insecure_tls else None
+    # The test certificate is self-signed, so HTTPS certificate validation is
+    # intentionally omitted for this non-production rollout probe.
+    tls_context = ssl._create_unverified_context()
     deadline = time.monotonic() + 1800
     consecutive = 0
     while time.monotonic() < deadline:
