@@ -80,19 +80,25 @@ jobs:
           terraform apply -input=false -auto-approve
           terraform output -json > "$RUNNER_TEMP/terraform-outputs.json"
           echo "AWS_REGION=$(jq -r '.aws_region.value' "$RUNNER_TEMP/terraform-outputs.json")" >> "$GITHUB_ENV"
+          if jq -e 'has("target_group_arn") and has("autoscaling_group_name") and has("launch_template_version")' "$RUNNER_TEMP/terraform-outputs.json" > /dev/null; then
+            echo "ROLLOUT_OUTPUTS_PRESENT=true" >> "$GITHUB_ENV"
+          else
+            echo "ROLLOUT_OUTPUTS_PRESENT=false" >> "$GITHUB_ENV"
+          fi
       - name: Explain skipped rollout verification
-        if: ${{ vars.APPLICATION_URL == '' || vars.AWS_VERIFY_ROLE_ARN == '' }}
+        if: ${{ vars.APPLICATION_URL == '' || vars.AWS_VERIFY_ROLE_ARN == '' || env.ROLLOUT_OUTPUTS_PRESENT == 'false' }}
         run: |
           echo "Infrastructure apply completed. Rollout verification was skipped."
           echo "Configure APPLICATION_URL and AWS_VERIFY_ROLE_ARN in the GitHub Environment to enable it."
+          echo "Verification also requires the service module's outputs (target_group_arn, autoscaling_group_name, launch_template_version) to exist."
       - name: Assume read-only rollout verification role
-        if: ${{ vars.APPLICATION_URL != '' && vars.AWS_VERIFY_ROLE_ARN != '' }}
+        if: ${{ vars.APPLICATION_URL != '' && vars.AWS_VERIFY_ROLE_ARN != '' && env.ROLLOUT_OUTPUTS_PRESENT == 'true' }}
         uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6.2.4
         with:
           role-to-assume: ${{ vars.AWS_VERIFY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
       - name: Verify rollout and application readiness
-        if: ${{ vars.APPLICATION_URL != '' && vars.AWS_VERIFY_ROLE_ARN != '' }}
+        if: ${{ vars.APPLICATION_URL != '' && vars.AWS_VERIFY_ROLE_ARN != '' && env.ROLLOUT_OUTPUTS_PRESENT == 'true' }}
         env:
           APPLICATION_URL: ${{ vars.APPLICATION_URL }}
         run: python3 .github/scripts/verify_rollout.py "$RUNNER_TEMP/terraform-outputs.json"
