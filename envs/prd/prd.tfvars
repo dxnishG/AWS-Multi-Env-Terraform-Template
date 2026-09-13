@@ -13,11 +13,11 @@ private_subnet_configs = {
   app-1a = { cidr_block = "10.2.10.0/24", availability_zone = "ap-southeast-1a" }
   app-1b = { cidr_block = "10.2.20.0/24", availability_zone = "ap-southeast-1b" }
 }
-instance_type     = "t3.micro"
-min_size          = 2
-max_size          = 4
-app_port          = 8080
-health_check_path = "/health"
+instance_type              = "t3.micro"
+min_size                   = 2
+max_size                   = 4
+app_port                   = 8080
+health_check_path          = "/health"
 enable_deletion_protection = false
 s3_buckets = {
   assets  = { purpose = "Application assets" }

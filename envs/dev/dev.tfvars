@@ -14,11 +14,11 @@ private_subnet_configs = {
   app-1b = { cidr_block = "10.0.20.0/24", availability_zone = "us-east-1b" }
 }
 instance_type              = "t4g.small"
-min_size                    = 2
-max_size                    = 4
-app_port                    = 8080
-health_check_path           = "/health"
-enable_deletion_protection    = false
+min_size                   = 2
+max_size                   = 4
+app_port                   = 8080
+health_check_path          = "/health"
+enable_deletion_protection = false
 s3_buckets = {
   assets  = { purpose = "Application assets" }
   backups = { purpose = "Application exports" }
