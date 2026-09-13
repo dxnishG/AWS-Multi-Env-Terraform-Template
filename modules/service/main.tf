@@ -1,5 +1,16 @@
 data "aws_caller_identity" "current" {}
 data "aws_region" "current" {}
+data "aws_ec2_instance_type" "selected" {
+  instance_type = var.instance_type
+}
+data "aws_ami" "selected" {
+  owners = [data.aws_caller_identity.current.account_id]
+
+  filter {
+    name   = "image-id"
+    values = [var.ami_id]
+  }
+}
 resource "aws_security_group" "alb" {
   name_prefix = "${var.name}-alb-"
   description = "Public HTTPS entry point"
@@ -215,6 +226,16 @@ resource "aws_launch_template" "this" {
   instance_type          = var.instance_type
   ebs_optimized          = true
   update_default_version = true
+
+  lifecycle {
+    precondition {
+      condition = contains(
+        data.aws_ec2_instance_type.selected.supported_architectures,
+        data.aws_ami.selected.architecture,
+      )
+      error_message = "instance_type architecture must match the application AMI architecture."
+    }
+  }
   iam_instance_profile {
     arn = aws_iam_instance_profile.app.arn
   }

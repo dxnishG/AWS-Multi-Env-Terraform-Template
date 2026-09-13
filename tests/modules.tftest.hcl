@@ -8,6 +8,9 @@ mock_provider "aws" {
   mock_data "aws_region" {
     defaults = { name = "us-east-1" }
   }
+  mock_data "aws_ec2_instance_type" {
+    defaults = { supported_architectures = ["arm64"] }
+  }
 }
 run "network_az_isolation" {
   command = plan
@@ -43,7 +46,7 @@ run "private_service_contract" {
     private_subnet_ids = ["subnet-33333333", "subnet-44444444"]
     ami_id             = "ami-0123456789abcdef0"
     certificate_arn    = "arn:aws:acm:us-east-1:123456789012:certificate/test"
-    instance_type      = "t3.small"
+    instance_type      = "t4g.small"
     app_port           = 8080
     health_check_path  = "/health"
     min_size           = 2
