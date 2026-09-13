@@ -60,8 +60,8 @@ run "private_service_contract" {
     tags               = {}
   }
   assert {
-    condition     = aws_lb_listener.https.protocol == "HTTPS" && !aws_lb.this.enable_deletion_protection
-    error_message = "Production entry point must use TLS."
+    condition     = aws_lb_listener.https.protocol == "HTTPS" && aws_lb.this.enable_deletion_protection
+    error_message = "Production entry point must use TLS and enable deletion protection."
   }
   assert {
     condition     = one(aws_launch_template.this.network_interfaces).associate_public_ip_address == "false" && aws_launch_template.this.metadata_options[0].http_tokens == "required"
