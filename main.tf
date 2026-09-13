@@ -1,6 +1,8 @@
 locals {
   name = "${var.name_prefix}-${var.environment}"
 }
+# Modules commented out to tear down all managed resources via the existing apply pipeline.
+/*
 module "network" {
   source          = "./modules/network"
   name            = local.name
@@ -38,3 +40,4 @@ module "recovery" {
   name            = local.name
   alarm_topic_arn = var.alarm_topic_arn
 }
+*/

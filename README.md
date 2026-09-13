@@ -282,6 +282,12 @@ skipped with a warning. After the first deployment, use the Terraform output
 }
 ~~~
 
+Rollout verification is also skipped automatically (with no configuration
+change needed) whenever the plan doesn't produce the `service` module's
+`target_group_arn`, `autoscaling_group_name`, and `launch_template_version`
+outputs — for example during the teardown procedure below, where those
+resources no longer exist.
+
 The permissions policy must contain the read-only actions above and no
 `Principal`; `Principal` belongs only in the role trust relationship. Restrict
 that trust to this repository's GitHub OIDC subject. GitHub may present owner
@@ -325,6 +331,23 @@ sequenceDiagram
 A failed plan prevents deployment. A failed environment stops the promotion.
 The rollout gate waits up to 30 minutes and rejects failed/rolled-back instance refreshes, stale launch-template versions, insufficient capacity, unhealthy targets, and failed HTTPS readiness.
 
+### Tearing down an environment
+
+This pipeline only supports plan/apply, not a dedicated destroy job. To remove
+all managed resources for an environment through the same CI/CD path:
+
+1. Comment out the `network`, `storage`, `service`, and `recovery` module
+   blocks in [main.tf](main.tf), and the outputs in [output.tf](output.tf) that
+   reference them (everything except `aws_region`).
+2. Push/merge as usual. The next remote plan shows only destroys (`0 to add,
+   0 to change`), and the apply job runs `terraform apply` against that
+   emptied configuration, which destroys every resource currently tracked in
+   that environment's state.
+3. If the ALB still has `enable_deletion_protection = true`, set it to `false`
+   in that environment's tfvars first (in a prior apply) so the destroy isn't
+   rejected by AWS.
+4. Revert the comments before the next real deployment to that environment.
+
 ## Configuration reference
 
 | Input | Type | Default | Notes |
@@ -344,7 +367,8 @@ The rollout gate waits up to 30 minutes and rejects failed/rolled-back instance 
 | health_check_path | string | /health | Must begin with / |
 | min_size | number | 2 | Production rejects values below two |
 | max_size | number | 4 | Must exceed min_size for rolling headroom |
-| s3_buckets | map(object) | assets bucket | Buckets are versioned and protected |
+| enable_deletion_protection | bool | true | Disable per environment only to allow the ALB to be destroyed |
+| s3_buckets | map(object) | assets bucket | Buckets are versioned; force_destroy is enabled for clean teardown |
 | tags | map(string) | empty map | Merged with environment/management tags |
 
 ### Outputs
@@ -391,8 +415,14 @@ module surface stays uncluttered.
 
 ## Security and operational notes
 
-- S3 data buckets and KMS keys use Terraform prevent_destroy; ALB deletion
-  protection is enabled. Decommissioning requires an explicit reviewed change.
+- ALB deletion protection is enabled by default (`enable_deletion_protection`).
+  Disable it per environment only when you intend to destroy that ALB.
+- S3 buckets (including the ALB access-log bucket) use `force_destroy = true`
+  rather than `prevent_destroy`, so a deliberate `apply` with the affected
+  resources removed from configuration will remove them; there is no separate
+  lifecycle guard blocking that. The access-log bucket also runs a destroy-time
+  provisioner that drains any remaining object versions/delete markers, since
+  in-flight ALB log delivery can otherwise cause `BucketNotEmpty` on deletion.
 - The application instance role can read/write configured bucket objects but
   cannot delete them.
 - HTTP is used only between the ALB and instances inside the VPC. Add end-to-end

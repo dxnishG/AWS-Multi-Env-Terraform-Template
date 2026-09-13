@@ -1,3 +1,5 @@
+# Module outputs commented out alongside main.tf's module blocks for teardown.
+/*
 output "vpc_id" {
   description = "VPC ID."
   value       = module.network.vpc_id
@@ -26,10 +28,12 @@ output "backup_vault_name" {
   description = "Vault holding scheduled EC2 recovery points."
   value       = module.recovery.vault_name
 }
+*/
 output "aws_region" {
   description = "Deployment region for rollout verification."
   value       = var.aws_region
 }
+/*
 output "target_group_arn" {
   description = "Target group checked by the deployment gate."
   value       = module.service.target_group_arn
@@ -38,4 +42,6 @@ output "launch_template_version" {
   description = "Expected launch template version after rollout."
   value       = module.service.launch_template_version
 }
+*/
+
 
