@@ -5,14 +5,14 @@ environment = "dev"
 aws_region  = "us-east-1"
 name_prefix = "myapp"
 vpc_cidr    = "10.0.0.0/16"
-# public_subnet_configs = {
-#   web-1a = { cidr_block = "10.0.1.0/24", availability_zone = "us-east-1a" }
-#   web-1b = { cidr_block = "10.0.2.0/24", availability_zone = "us-east-1b" }
-# }
-# private_subnet_configs = {
-#   app-1a = { cidr_block = "10.0.10.0/24", availability_zone = "us-east-1a" }
-#   app-1b = { cidr_block = "10.0.20.0/24", availability_zone = "us-east-1b" }
-# }
+public_subnet_configs = {
+  web-1a = { cidr_block = "10.0.1.0/24", availability_zone = "us-east-1a" }
+  web-1b = { cidr_block = "10.0.2.0/24", availability_zone = "us-east-1b" }
+}
+private_subnet_configs = {
+  app-1a = { cidr_block = "10.0.10.0/24", availability_zone = "us-east-1a" }
+  app-1b = { cidr_block = "10.0.20.0/24", availability_zone = "us-east-1b" }
+}
 # instance_type     = "t4g.small"
 # min_size          = 2
 # max_size          = 4

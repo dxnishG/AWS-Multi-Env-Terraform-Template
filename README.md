@@ -334,8 +334,8 @@ The rollout gate waits up to 30 minutes and rejects failed/rolled-back instance 
 | aws_account_id | string | required | Enforced by allowed_account_ids |
 | name_prefix | string | app | 2–16 lowercase letters, digits, or hyphens |
 | vpc_cidr | string | required | IPv4 VPC CIDR |
-| public_subnet_configs | map(object) | required | At least two subnets in distinct AZs |
-| private_subnet_configs | map(object) | required | At least two; AZs must match public subnets |
+| public_subnet_configs | map(object) | 2 AZ subnets | At least two subnets in distinct AZs |
+| private_subnet_configs | map(object) | 2 AZ subnets | At least two; AZs must match public subnets |
 | ami_id | string | required | No latest-AMI fallback |
 | certificate_arn | string | required | ACM ARN in target account/region |
 | alarm_topic_arn | string | required | SNS ARN in target account/region |

@@ -38,6 +38,10 @@ variable "vpc_cidr" {
 variable "public_subnet_configs" {
   description = "Public ALB/NAT subnets, one per AZ. Keep existing keys during migration."
   type        = map(object({ cidr_block = string, availability_zone = string }))
+  default = {
+    web-1a = { cidr_block = "10.0.1.0/24", availability_zone = "us-east-1a" }
+    web-1b = { cidr_block = "10.0.2.0/24", availability_zone = "us-east-1b" }
+  }
   validation {
     condition     = length(var.public_subnet_configs) >= 2 && length(distinct([for s in var.public_subnet_configs : s.availability_zone])) == length(var.public_subnet_configs)
     error_message = "Provide at least two public subnets in distinct AZs."
@@ -46,6 +50,10 @@ variable "public_subnet_configs" {
 variable "private_subnet_configs" {
   description = "Private application subnets with a matching public subnet in each AZ."
   type        = map(object({ cidr_block = string, availability_zone = string }))
+  default = {
+    app-1a = { cidr_block = "10.0.10.0/24", availability_zone = "us-east-1a" }
+    app-1b = { cidr_block = "10.0.20.0/24", availability_zone = "us-east-1b" }
+  }
   validation {
     condition     = length(var.private_subnet_configs) >= 2 && length(distinct([for s in var.private_subnet_configs : s.availability_zone])) == length(var.private_subnet_configs) && alltrue([for s in var.private_subnet_configs : contains([for p in var.public_subnet_configs : p.availability_zone], s.availability_zone)])
     error_message = "Provide at least two distinct private AZs, each with a public subnet in the same AZ."
