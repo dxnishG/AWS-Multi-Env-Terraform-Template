@@ -38,3 +38,4 @@ output "launch_template_version" {
   description = "Expected launch template version after rollout."
   value       = module.service.launch_template_version
 }
+
