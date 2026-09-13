@@ -75,6 +75,11 @@ variable "certificate_arn" {
     error_message = "Provide an ACM certificate ARN in the target account and region."
   }
 }
+variable "enable_deletion_protection" {
+  description = "Enable deletion protection on the ALB. Disable only for short-lived/ephemeral environments."
+  type        = bool
+  default     = true
+}
 variable "alarm_topic_arn" {
   description = "Existing SNS topic with a confirmed operations subscription in the target region/account."
   type        = string
