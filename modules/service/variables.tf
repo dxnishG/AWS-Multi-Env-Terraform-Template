@@ -38,6 +38,12 @@ variable "app_port" {
   type        = number
 }
 
+variable "enable_deletion_protection" {
+  description = "enable deletion protection on the ALB for this module."
+  type        = bool
+  default     = true
+}
+
 variable "health_check_path" {
   description = "health check path for this module."
   type        = string

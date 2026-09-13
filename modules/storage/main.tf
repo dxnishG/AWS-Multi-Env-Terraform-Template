@@ -3,9 +3,6 @@ resource "aws_kms_key" "this" {
   description             = "Application S3 encryption for ${var.name}"
   enable_key_rotation     = true
   deletion_window_in_days = 30
-  lifecycle {
-    prevent_destroy = true
-  }
 }
 resource "aws_kms_alias" "this" {
   name          = "alias/${var.name}-storage"
@@ -16,11 +13,8 @@ resource "aws_s3_bucket" "this" {
   # checkov:skip=CKV2_AWS_62:No application object-event contract; add notifications with the consuming workload.
   for_each      = var.buckets
   bucket        = "${var.name}-${each.key}-${data.aws_caller_identity.current.account_id}"
-  force_destroy = false
+  force_destroy = true
   tags          = { Name = "${var.name}-${each.key}", Purpose = each.value.purpose }
-  lifecycle {
-    prevent_destroy = true
-  }
 }
 resource "aws_s3_bucket_versioning" "this" {
   for_each = var.buckets

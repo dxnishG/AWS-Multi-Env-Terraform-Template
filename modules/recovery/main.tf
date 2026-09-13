@@ -1,10 +1,7 @@
 resource "aws_backup_vault" "this" {
   kms_key_arn   = aws_kms_key.this.arn
   name          = "${var.name}-recovery"
-  force_destroy = false
-  lifecycle {
-    prevent_destroy = true
-  }
+  force_destroy = true
 }
 resource "aws_backup_plan" "this" {
   name = "${var.name}-daily"

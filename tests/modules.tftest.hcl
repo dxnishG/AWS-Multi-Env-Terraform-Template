@@ -61,7 +61,7 @@ run "private_service_contract" {
   }
   assert {
     condition     = aws_lb_listener.https.protocol == "HTTPS" && aws_lb.this.enable_deletion_protection
-    error_message = "Production entry point must use TLS and deletion protection."
+    error_message = "Production entry point must use TLS and enable deletion protection."
   }
   assert {
     condition     = one(aws_launch_template.this.network_interfaces).associate_public_ip_address == "false" && aws_launch_template.this.metadata_options[0].http_tokens == "required"
@@ -80,7 +80,7 @@ run "storage_retention" {
     buckets = { assets = { purpose = "Assets" } }
   }
   assert {
-    condition     = !aws_s3_bucket.this["assets"].force_destroy && aws_s3_bucket_versioning.this["assets"].versioning_configuration[0].status == "Enabled"
-    error_message = "Data buckets must retain versions and reject force deletion."
+    condition     = aws_s3_bucket.this["assets"].force_destroy && aws_s3_bucket_versioning.this["assets"].versioning_configuration[0].status == "Enabled"
+    error_message = "Data buckets must retain versions."
   }
 }

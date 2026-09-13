@@ -60,7 +60,7 @@ resource "aws_s3_bucket" "access_logs" {
   # checkov:skip=CKV2_AWS_62:Passive log archive with no object-event consumer.
   # checkov:skip=CKV_AWS_145:ALB log delivery supports SSE-S3 only; this bucket contains access logs, not application data.
   bucket        = "${var.name}-alb-logs-${data.aws_caller_identity.current.account_id}-${data.aws_region.current.region}"
-  force_destroy = false
+  force_destroy = true
 }
 resource "aws_s3_bucket_public_access_block" "access_logs" {
   bucket                  = aws_s3_bucket.access_logs.id
@@ -136,7 +136,7 @@ resource "aws_lb" "this" {
   load_balancer_type         = "application"
   security_groups            = [aws_security_group.alb.id]
   subnets                    = var.public_subnet_ids
-  enable_deletion_protection = true
+  enable_deletion_protection = var.enable_deletion_protection
   drop_invalid_header_fields = true
   desync_mitigation_mode     = "strictest"
   access_logs {

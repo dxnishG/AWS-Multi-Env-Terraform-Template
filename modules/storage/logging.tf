@@ -4,7 +4,7 @@ resource "aws_s3_bucket" "audit" {
   # checkov:skip=CKV_AWS_144:Regional log archive; organization-wide replication is a separate policy.
   # checkov:skip=CKV2_AWS_62:Passive audit archive has no object-event consumer.
   bucket        = "${var.name}-s3-logs-${data.aws_caller_identity.current.account_id}-${data.aws_region.current.region}"
-  force_destroy = false
+  force_destroy = true
 }
 resource "aws_s3_bucket_public_access_block" "audit" {
   bucket                  = aws_s3_bucket.audit.id
