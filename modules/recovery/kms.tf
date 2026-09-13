@@ -18,7 +18,4 @@ resource "aws_kms_key" "this" {
   enable_key_rotation     = true
   deletion_window_in_days = 30
   policy                  = data.aws_iam_policy_document.key.json
-  lifecycle {
-    prevent_destroy = true
-  }
 }
