@@ -62,6 +62,41 @@ resource "aws_s3_bucket" "access_logs" {
   bucket        = "${var.name}-alb-logs-${data.aws_caller_identity.current.account_id}-${data.aws_region.current.region}"
   force_destroy = true
 }
+# ALB log delivery can still be in flight when this bucket is destroyed; force_destroy alone
+# occasionally loses that race, so drain all versions/delete markers immediately beforehand.
+resource "null_resource" "drain_access_logs" {
+  triggers = {
+    bucket = aws_s3_bucket.access_logs.id
+    region = data.aws_region.current.region
+  }
+  provisioner "local-exec" {
+    when        = destroy
+    interpreter = ["/bin/bash", "-c"]
+    command     = <<-EOT
+      set -euo pipefail
+      bucket="${self.triggers.bucket}"
+      region="${self.triggers.region}"
+      for attempt in 1 2 3 4 5; do
+        versions=$(aws s3api list-object-versions --bucket "$bucket" --region "$region" --output json \
+          --query '{Objects: Versions[].{Key:Key,VersionId:VersionId}}')
+        markers=$(aws s3api list-object-versions --bucket "$bucket" --region "$region" --output json \
+          --query '{Objects: DeleteMarkers[].{Key:Key,VersionId:VersionId}}')
+        remaining=0
+        if [ "$(echo "$versions" | jq '.Objects | length')" -gt 0 ]; then
+          aws s3api delete-objects --bucket "$bucket" --region "$region" --delete "$versions"
+          remaining=1
+        fi
+        if [ "$(echo "$markers" | jq '.Objects | length')" -gt 0 ]; then
+          aws s3api delete-objects --bucket "$bucket" --region "$region" --delete "$markers"
+          remaining=1
+        fi
+        [ "$remaining" -eq 0 ] && break
+        sleep 5
+      done
+    EOT
+  }
+  depends_on = [aws_s3_bucket.access_logs]
+}
 resource "aws_s3_bucket_public_access_block" "access_logs" {
   bucket                  = aws_s3_bucket.access_logs.id
   block_public_acls       = true
