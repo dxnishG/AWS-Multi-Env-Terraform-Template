@@ -1,10 +1,10 @@
-# # Supply aws_account_id, ami_id, certificate_arn, and alarm_topic_arn
-# # as Terraform variables in this environment's HCP Terraform workspace.
-# # AMI must contain the tested application and expose /health on port 8080.
-# environment = "dev"
-# aws_region  = "us-east-1"
-# name_prefix = "myapp"
-# vpc_cidr    = "10.0.0.0/16"
+# Supply aws_account_id, ami_id, certificate_arn, and alarm_topic_arn
+# as Terraform variables in this environment's HCP Terraform workspace.
+# AMI must contain the tested application and expose /health on port 8080.
+environment = "dev"
+aws_region  = "us-east-1"
+name_prefix = "myapp"
+vpc_cidr    = "10.0.0.0/16"
 # public_subnet_configs = {
 #   web-1a = { cidr_block = "10.0.1.0/24", availability_zone = "us-east-1a" }
 #   web-1b = { cidr_block = "10.0.2.0/24", availability_zone = "us-east-1b" }
