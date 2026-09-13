@@ -2,6 +2,14 @@
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
+> After a long break from personal projects, I built this as a way to reflect
+> on and consolidate what I've learned deploying AWS infrastructure with
+> Terraform over the years. It's a production-oriented, multi-environment
+> (dev/acc/prd) template covering networking, auto-scaling compute, S3 + KMS,
+> backups, WAF, and a full CI/CD promotion pipeline with policy/security
+> scanning — basically a snapshot of the practices I'd actually want to use on
+> a real AWS account.
+
 A production-oriented Terraform starter for running a stateless application on
 AWS across development, acceptance, and production environments.
 
