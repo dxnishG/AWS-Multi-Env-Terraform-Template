@@ -95,4 +95,5 @@ jobs:
         if: ${{ vars.APPLICATION_URL != '' && vars.AWS_VERIFY_ROLE_ARN != '' }}
         env:
           APPLICATION_URL: ${{ vars.APPLICATION_URL }}
+          ALLOW_INSECURE_TLS: ${{ vars.ALLOW_INSECURE_TLS || 'false' }}
         run: python3 .github/scripts/verify_rollout.py "$RUNNER_TEMP/terraform-outputs.json"
