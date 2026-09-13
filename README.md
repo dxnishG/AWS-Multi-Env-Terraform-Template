@@ -79,7 +79,7 @@ flowchart TB
 - Versioned S3 buckets encrypted with a rotating customer-managed KMS key.
 - VPC flow logs, WAF logs, S3 access logs, and CloudWatch health alarms.
 - Daily AWS Backup recovery points retained for 35 days.
-- Exact saved-plan deployment with ordered **dev → acc → prd** promotion.
+- Remote plan and apply through HCP Terraform/TFE with ordered **dev → acc → prd** promotion.
 - Terraform contract tests, TFLint, Checkov, Trivy, and actionlint in CI.
 
 ## Before you start
@@ -98,9 +98,13 @@ You need:
    - returns HTTP 200 from the configured health path;
    - includes a working SSM agent;
    - stores durable data outside the instance root volume.
-5. An issued ACM certificate in each target account and region.
+5. An ACM certificate in each target account and region. For production, use
+  an issued certificate for a real domain. A self-signed imported certificate
+  is suitable only for the test rollout path.
 6. An SNS topic with at least one confirmed operations subscription.
-7. A DNS hostname covered by the ACM certificate.
+7. A DNS hostname covered by the ACM certificate for production use. The test
+  setup can use the ALB DNS name directly, but browsers warn for a self-signed
+  certificate.
 
 This architecture creates NAT gateways, an ALB, WAF resources, KMS keys, logs,
 and backups in every environment. Review AWS pricing before deployment.
@@ -116,7 +120,7 @@ Create three CLI-driven workspaces:
 - aws-app-prd
 
 Keep VCS integration disconnected and automatic apply disabled. GitHub Actions
-is the deployment controller.
+is the deployment controller. Set each workspace to **Remote** execution.
 
 Edit the backend files with your organization and workspace names:
 
@@ -196,13 +200,13 @@ terraform init \
   -lockfile=readonly \
   -backend-config=envs/dev/dev.tfconfig
 
-terraform plan -out=deployment.tfplan
-terraform apply deployment.tfplan
+terraform plan
+terraform apply
 ~~~
 
-The last command applies the exact saved remote plan. Remove
-terraform.auto.tfvars before switching environments, or use separate working
-directories. The file and plan artifacts are ignored by Git.
+The `remote` backend does not support local `-out` plan files. HCP
+Terraform/TFE manages the remote run plan. Remove `terraform.auto.tfvars`
+before switching environments, or use separate working directories.
 
 After the apply, create a DNS alias/CNAME from the application hostname to the
 application_dns_name output and verify the HTTPS health endpoint.
@@ -214,6 +218,19 @@ dev, acc, and prd. A push to main runs the quality gate, then starts the
 promotion sequence; only then can Terraform apply run. The promotion workflow
 runs remote plans and applies through HCP Terraform/TFE.
 
+The quality gate runs these checks before planning:
+
+- Terraform format, initialization, validation, contract tests, and rollout
+  verifier tests.
+- TFLint with Terraform and AWS rules.
+- Checkov for Terraform security and compliance checks.
+- Trivy for filesystem secrets and vulnerability scanning.
+- actionlint for GitHub Actions workflow correctness.
+
+On pull requests, the plan matrix runs for `dev`, `acc`, and `prd`. On a push
+to `main`, the promotion chain runs one remote plan and one remote apply for
+each environment in order: `dev`, then `acc`, then `prd`.
+
 ### Repository settings
 
 | Type | Name | Value |
@@ -221,7 +238,11 @@ runs remote plans and applies through HCP Terraform/TFE.
 | Secret | TF_TOKEN | HCP Terraform/TFE token limited to the three workspaces |
 | Variable | TF_HOSTNAME | TFE hostname; omit for app.terraform.io |
 
-Create GitHub environments named dev, acc, and prd under
+Do not add AWS access keys to GitHub. AWS provider credentials belong in the
+Terraform Cloud workspace or assigned variable set. `TF_TOKEN` only
+authenticates GitHub Actions to HCP Terraform/TFE.
+
+Create GitHub environments named `dev`, `acc`, and `prd` under
 **Settings → Environments**. These variables enable post-apply rollout
 verification and are optional for the first bootstrap deployment:
 
@@ -229,6 +250,17 @@ verification and are optional for the first bootstrap deployment:
 | --- | --- |
 | APPLICATION_URL | Full readiness URL, for example https://app.example.com/health |
 | AWS_VERIFY_ROLE_ARN | Read-only AWS role assumed through GitHub OIDC |
+
+For each environment, `APPLICATION_URL` is:
+
+~~~text
+https://<environment-alb-dns-name>/health
+~~~
+
+The verifier requires healthy ALB targets and three consecutive HTTP 200
+responses. The current non-production test path intentionally skips TLS chain
+validation for its self-signed certificate; production should use a trusted
+ACM certificate.
 
 The verification role needs the following permissions. If these variables are
 not configured, infrastructure apply still runs and rollout verification is
@@ -250,16 +282,20 @@ skipped with a warning. After the first deployment, use the Terraform output
 }
 ~~~
 
-Restrict its GitHub OIDC trust to:
+The permissions policy must contain the read-only actions above and no
+`Principal`; `Principal` belongs only in the role trust relationship. Restrict
+that trust to this repository's GitHub OIDC subject. GitHub may present owner
+and repository IDs in the `sub` claim, so use the exact subject prefix shown by
+CloudTrail for the repository.
 
 ~~~text
-repo:OWNER/REPOSITORY:environment:ENVIRONMENT
+repo:OWNER/REPOSITORY:*
 ~~~
 
-For prd, configure required reviewers, prevention of self-review, and a
-deployment branch policy allowing main. Disable administrator bypass where your
-GitHub plan supports it. The workflow checks the first three controls before
-creating a production plan.
+For `prd`, configure at least one required reviewer and a deployment branch
+policy allowing `main`. Self-review prevention is optional in this workflow.
+The workflow checks the reviewer rule and branch policy before the production
+plan. GitHub Environment approval occurs on the `apply` job.
 
 Protect main separately with pull-request reviews and required quality checks.
 
@@ -275,10 +311,10 @@ sequenceDiagram
     Operator->>GH: Merge pull request to main
     GH->>GH: Quality and security checks
     loop dev, then acc, then prd
-        GH->>TF: Create saved remote plan
+        GH->>TF: Run remote plan
         TF->>AWS: Refresh current state
         TF-->>GH: Remote plan result
-        GH->>GH: Wait for environment approval
+        GH->>GH: Wait for GitHub Environment approval
         GH->>TF: Start remote apply
         TF->>AWS: Reconcile infrastructure
         GH->>AWS: Verify ASG version and ALB targets
@@ -303,7 +339,7 @@ The rollout gate waits up to 30 minutes and rejects failed/rolled-back instance 
 | ami_id | string | required | No latest-AMI fallback |
 | certificate_arn | string | required | ACM ARN in target account/region |
 | alarm_topic_arn | string | required | SNS ARN in target account/region |
-| instance_type | string | t4g.small | Must support ARM64 and be compatible with the AMI |
+| instance_type | string | t4g.small | Must match the AMI architecture; dev uses ARM64 and acc/prd use x86_64 |
 | app_port | number | 8080 | Reachable only from the ALB |
 | health_check_path | string | /health | Must begin with / |
 | min_size | number | 2 | Production rejects values below two |
@@ -345,7 +381,7 @@ The rollout gate waits up to 30 minutes and rejects failed/rolled-back instance 
 ├── tests/                         # Terraform contract tests
 ├── .github/
 │   ├── scripts/                   # CI rollout verifier and its unit test
-│   └── workflows/                 # Quality, saved-plan, and promotion workflows
+│   └── workflows/                 # Quality, remote plan, and promotion workflows
 └── docs/                          # Migration, operations, and security notes
 ~~~
 
