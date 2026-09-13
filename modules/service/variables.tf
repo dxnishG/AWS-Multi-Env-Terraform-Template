@@ -29,7 +29,7 @@ variable "certificate_arn" {
 }
 
 variable "instance_type" {
-  description = "instance type for this module."
+  description = "ARM64 instance type for this module."
   type        = string
 }
 

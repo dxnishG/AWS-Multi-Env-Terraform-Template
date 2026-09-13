@@ -303,7 +303,7 @@ The rollout gate waits up to 30 minutes and rejects failed/rolled-back instance 
 | ami_id | string | required | No latest-AMI fallback |
 | certificate_arn | string | required | ACM ARN in target account/region |
 | alarm_topic_arn | string | required | SNS ARN in target account/region |
-| instance_type | string | t3.small | Must be compatible with the AMI |
+| instance_type | string | t4g.small | Must support ARM64 and be compatible with the AMI |
 | app_port | number | 8080 | Reachable only from the ALB |
 | health_check_path | string | /health | Must begin with / |
 | min_size | number | 2 | Production rejects values below two |

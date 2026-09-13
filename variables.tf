@@ -76,9 +76,9 @@ variable "alarm_topic_arn" {
   }
 }
 variable "instance_type" {
-  description = "Instance type compatible with the pinned AMI."
+  description = "ARM64 instance type compatible with the pinned application AMI."
   type        = string
-  default     = "t3.small"
+  default     = "t4g.small"
 }
 variable "app_port" {
   description = "Application HTTP port reachable only from the ALB."

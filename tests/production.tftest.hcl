@@ -8,6 +8,12 @@ mock_provider "aws" {
   mock_data "aws_region" {
     defaults = { name = "us-east-1" }
   }
+  mock_data "aws_ec2_instance_type" {
+    defaults = { supported_architectures = ["arm64"] }
+  }
+  mock_data "aws_ami" {
+    defaults = { architecture = "arm64" }
+  }
 }
 
 variables {
