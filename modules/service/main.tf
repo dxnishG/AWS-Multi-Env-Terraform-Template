@@ -61,21 +61,16 @@ resource "aws_s3_bucket" "access_logs" {
   # checkov:skip=CKV_AWS_145:ALB log delivery supports SSE-S3 only; this bucket contains access logs, not application data.
   bucket        = "${var.name}-alb-logs-${data.aws_caller_identity.current.account_id}-${data.aws_region.current.region}"
   force_destroy = true
-}
-# ALB log delivery can still be in flight when this bucket is destroyed; force_destroy alone
-# occasionally loses that race, so drain all versions/delete markers immediately beforehand.
-resource "null_resource" "drain_access_logs" {
-  triggers = {
-    bucket = aws_s3_bucket.access_logs.id
-    region = data.aws_region.current.region
-  }
+
+  # ALB log delivery can still be in flight when this bucket is destroyed; force_destroy alone
+  # occasionally loses that race, so drain all versions/delete markers immediately beforehand.
   provisioner "local-exec" {
     when        = destroy
     interpreter = ["/bin/bash", "-c"]
     command     = <<-EOT
       set -euo pipefail
-      bucket="${self.triggers.bucket}"
-      region="${self.triggers.region}"
+      bucket="${self.id}"
+      region="${self.bucket_region}"
       for attempt in 1 2 3 4 5; do
         versions=$(aws s3api list-object-versions --bucket "$bucket" --region "$region" --output json \
           --query '{Objects: Versions[].{Key:Key,VersionId:VersionId}}')
@@ -95,7 +90,6 @@ resource "null_resource" "drain_access_logs" {
       done
     EOT
   }
-  depends_on = [aws_s3_bucket.access_logs]
 }
 resource "aws_s3_bucket_public_access_block" "access_logs" {
   bucket                  = aws_s3_bucket.access_logs.id
