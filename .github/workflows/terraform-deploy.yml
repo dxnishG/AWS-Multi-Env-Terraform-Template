@@ -93,7 +93,7 @@ jobs:
           echo "Verification also requires the service module's outputs (target_group_arn, autoscaling_group_name, launch_template_version) to exist."
       - name: Assume read-only rollout verification role
         if: ${{ vars.APPLICATION_URL != '' && vars.AWS_VERIFY_ROLE_ARN != '' && env.ROLLOUT_OUTPUTS_PRESENT == 'true' }}
-        uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6.2.4
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: ${{ vars.AWS_VERIFY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
